@@ -39,7 +39,7 @@ struct FloatingTranscriptView: View {
             }
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(controller.session?.title ?? "Meetings Helper")
+                Text(controller.session?.title ?? "Meeting Helper")
                     .font(.system(size: 12, weight: .semibold))
                     .lineLimit(1)
 

@@ -1,7 +1,7 @@
 import OSLog
 
 enum Log {
-    private static let subsystem = "com.kovalev.MeetingsHelper"
+    private static let subsystem = "com.kovalev.MeetingHelper"
 
     static let app = Logger(subsystem: subsystem, category: "app")
     static let detection = Logger(subsystem: subsystem, category: "detection")

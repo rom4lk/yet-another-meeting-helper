@@ -75,7 +75,7 @@ final class SourceTranscriber {
         self.echoReference = echoReference
         self.onEchoVerdict = onEchoVerdict
         self.onUpdate = onUpdate
-        self.queue = DispatchQueue(label: "com.kovalev.MeetingsHelper.vad.\(source.rawValue)", qos: .utility)
+        self.queue = DispatchQueue(label: "com.kovalev.MeetingHelper.vad.\(source.rawValue)", qos: .utility)
     }
 
     init(
@@ -97,7 +97,7 @@ final class SourceTranscriber {
             guard case .final(let line) = update else { return }
             onLine(line)
         }
-        self.queue = DispatchQueue(label: "com.kovalev.MeetingsHelper.vad.\(source.rawValue)", qos: .utility)
+        self.queue = DispatchQueue(label: "com.kovalev.MeetingHelper.vad.\(source.rawValue)", qos: .utility)
     }
 
     init(
@@ -116,7 +116,7 @@ final class SourceTranscriber {
         self.echoReference = echoReference
         self.onEchoVerdict = onEchoVerdict
         self.onUpdate = onUpdate
-        self.queue = DispatchQueue(label: "com.kovalev.MeetingsHelper.vad.\(source.rawValue)", qos: .utility)
+        self.queue = DispatchQueue(label: "com.kovalev.MeetingHelper.vad.\(source.rawValue)", qos: .utility)
     }
 
     func feed(_ samples: [Float]) {

@@ -1,5 +1,5 @@
 import XCTest
-@testable import MeetingsHelper
+@testable import MeetingHelper
 
 final class EchoReferenceTests: XCTestCase {
     private func frames(_ amplitudes: [Float]) -> [Float] {

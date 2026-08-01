@@ -14,7 +14,7 @@ implemented, verified end to end, and then measured to be actively harmful.
 The AEC option and the whole VPIO capture path were removed on 2026-08-01. What replaced them is
 the echo gate — see [echo-gate-calibration.md](echo-gate-calibration.md) — which compares the two
 tracks' loudness envelopes and skips leaked utterances before recognition, backed by transcript
-deduplication ([TranscriptDeduplicator.swift](../Sources/MeetingsHelper/Transcription/TranscriptDeduplicator.swift)).
+deduplication ([TranscriptDeduplicator.swift](../Sources/MeetingHelper/Transcription/TranscriptDeduplicator.swift)).
 Neither depends on Core Audio behaving.
 
 ## Test machine
@@ -175,11 +175,11 @@ Not AEC, but discovered in the same investigation and load-bearing for microphon
 - Useful invocations:
 
 ```bash
-/usr/bin/log show --start "2026-08-01 18:38:50" --end "2026-08-01 18:39:30" --predicate 'process == "MeetingsHelper" AND (sender == "AudioDSP" OR sender == "CoreAudio")'
+/usr/bin/log show --start "2026-08-01 18:38:50" --end "2026-08-01 18:39:30" --predicate 'process == "MeetingHelper" AND (sender == "AudioDSP" OR sender == "CoreAudio")'
 ```
 
 ```bash
-/usr/bin/log show --start "2026-08-01 18:00:00" --predicate 'process == "MeetingsHelper" AND sender == "AVFAudio"' | grep -E "start, was|stop, was|configuration changed"
+/usr/bin/log show --start "2026-08-01 18:00:00" --predicate 'process == "MeetingHelper" AND sender == "AVFAudio"' | grep -E "start, was|stop, was|configuration changed"
 ```
 
 - Log markers worth grepping: `AUVPAggregate.cpp`, `theDeviceBoardID`, `ref channel count`,

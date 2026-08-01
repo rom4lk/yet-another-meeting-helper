@@ -1,6 +1,6 @@
 import AVFoundation
 import XCTest
-@testable import MeetingsHelper
+@testable import MeetingHelper
 
 final class AudioTrackWriterTests: XCTestCase {
     func testPadsTrackToSharedTimeline() throws {

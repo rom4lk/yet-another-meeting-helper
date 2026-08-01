@@ -10,7 +10,7 @@ final class SystemAudioTap {
     }
 
     private let scope: Scope
-    private let queue = DispatchQueue(label: "com.kovalev.MeetingsHelper.systemTap", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "com.kovalev.MeetingHelper.systemTap", qos: .userInitiated)
 
     private static let initializationAttempts = 100
     private static let ioAttempts = 20
@@ -43,7 +43,7 @@ final class SystemAudioTap {
         description.uuid = UUID()
         description.muteBehavior = .unmuted
         description.isPrivate = true
-        description.name = "MeetingsHelper"
+        description.name = "MeetingHelper"
 
         var err = AudioHardwareCreateProcessTap(description, &tapID)
         guard err == noErr, tapID.isValid else {
@@ -127,7 +127,7 @@ final class SystemAudioTap {
 
     static func aggregateDescription(tapUUID: UUID) -> [String: Any] {
         [
-            kAudioAggregateDeviceNameKey: "MeetingsHelper Tap",
+            kAudioAggregateDeviceNameKey: "MeetingHelper Tap",
             kAudioAggregateDeviceUIDKey: UUID().uuidString,
             kAudioAggregateDeviceIsPrivateKey: true,
             kAudioAggregateDeviceIsStackedKey: false,

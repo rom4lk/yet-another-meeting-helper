@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct MeetingsHelperApp: App {
+struct MeetingHelperApp: App {
     @StateObject private var controller = AppController()
     @Environment(\.scenePhase) private var scenePhase
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate

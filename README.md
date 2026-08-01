@@ -1,4 +1,4 @@
-# Meetings Helper
+# Meeting Helper
 
 A native macOS app: it notices a meeting has started on its own, records the microphone and system
 audio into separate tracks, and shows a live transcript in a floating window above everything else.
@@ -6,7 +6,7 @@ audio into separate tracks, and shows a live transcript in a floating window abo
 ## Build
 
 ```bash
-xcodegen generate && open MeetingsHelper.xcodeproj
+xcodegen generate && open MeetingHelper.xcodeproj
 ```
 
 `.xcodeproj` is not in git — it is generated from [project.yml](project.yml). After adding new files
@@ -25,13 +25,13 @@ From the repository root:
 ```bash
 xcodegen generate &&
 xcodebuild \
-  -project MeetingsHelper.xcodeproj \
-  -scheme MeetingsHelper \
+  -project MeetingHelper.xcodeproj \
+  -scheme MeetingHelper \
   -configuration Debug \
   -derivedDataPath .build \
   build &&
-{ pkill -x MeetingsHelper 2>/dev/null || true; } &&
-open .build/Build/Products/Debug/MeetingsHelper.app
+{ pkill -x MeetingHelper 2>/dev/null || true; } &&
+open .build/Build/Products/Debug/MeetingHelper.app
 ```
 
 This regenerates the Xcode project, builds a signed Debug app, stops an already running instance,
@@ -74,7 +74,7 @@ all system output.
 Both tracks are normalized to 16 kHz mono and written **separately**:
 
 ```
-~/Library/Application Support/MeetingsHelper/Meetings/<uuid>/
+~/Library/Application Support/MeetingHelper/Meetings/<uuid>/
     meeting.json     metadata
     mic.wav          my voice
     system.wav       the other participants' voices
@@ -110,7 +110,7 @@ deduplication cannot see — the two tracks producing different words for the sa
 ## Transcript
 
 WhisperKit (CoreML); the model is picked in Settings, `large-v3-turbo` by default. Model files live
-under `~/Library/Application Support/MeetingsHelper/Models` and are prepared in the background when
+under `~/Library/Application Support/MeetingHelper/Models` and are prepared in the background when
 the app starts. Whisper is not
 streaming, so the stream is cut into lines by an energy VAD with an adaptive threshold: a line closes
 after 0.8 s of silence, or is forced closed at 25 s. Each track is transcribed by its own instance,

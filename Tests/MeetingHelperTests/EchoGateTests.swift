@@ -1,5 +1,5 @@
 import XCTest
-@testable import MeetingsHelper
+@testable import MeetingHelper
 
 final class EchoGateTests: XCTestCase {
     /// A speech-shaped loudness envelope, one value per 100 ms frame.

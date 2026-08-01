@@ -9,7 +9,7 @@ messages, placeholders, and the `NS*UsageDescription` entries in [project.yml](p
 localization and no Russian UI.
 
 One exception: the hallucination filter in
-[Sources/MeetingsHelper/Transcription/TranscriptionEngine.swift](Sources/MeetingsHelper/Transcription/TranscriptionEngine.swift)
+[Sources/MeetingHelper/Transcription/TranscriptionEngine.swift](Sources/MeetingHelper/Transcription/TranscriptionEngine.swift)
 holds verbatim Whisper output in the languages the model produces it in. Those strings are data
 being matched against — never translate them.
 

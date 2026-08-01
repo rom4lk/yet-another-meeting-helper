@@ -1,5 +1,5 @@
 import XCTest
-@testable import MeetingsHelper
+@testable import MeetingHelper
 
 final class MeetingDeletionTests: XCTestCase {
     func testMeetingShorterThanTenSecondsIsNotSaved() {

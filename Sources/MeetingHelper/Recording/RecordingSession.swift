@@ -216,7 +216,7 @@ final class RecordingSession: ObservableObject {
     private func attachSystemTap() -> Bool {
         let scope: SystemAudioTap.Scope
         if detected.capturesAllSystemAudio {
-            let ownBundleID = Bundle.main.bundleIdentifier ?? "com.kovalev.MeetingsHelper"
+            let ownBundleID = Bundle.main.bundleIdentifier ?? "com.kovalev.MeetingHelper"
             let ownObjectIDs = AudioProcessLookup.matches(prefixes: [ownBundleID]).map(\.objectID)
             scope = .allSystemAudio(excluding: ownObjectIDs)
         } else {

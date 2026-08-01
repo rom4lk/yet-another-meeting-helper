@@ -9,12 +9,12 @@ it.
 
 Nothing to the audio. `mic.wav` still contains the speaker leakage, and so does the mixdown. The
 gate only decides whether a microphone utterance is worth sending to Whisper
-([EchoGate.swift](../Sources/MeetingsHelper/Audio/EchoGate.swift),
-[EchoReference.swift](../Sources/MeetingsHelper/Audio/EchoReference.swift), called from
+([EchoGate.swift](../Sources/MeetingHelper/Audio/EchoGate.swift),
+[EchoReference.swift](../Sources/MeetingHelper/Audio/EchoReference.swift), called from
 `SourceTranscriber.closeUtterance`).
 
 It works on the per-100 ms loudness envelope of both tracks, which
-[AudioTrackWriter](../Sources/MeetingsHelper/Audio/AudioTrackWriter.swift) already aligns to a
+[AudioTrackWriter](../Sources/MeetingHelper/Audio/AudioTrackWriter.swift) already aligns to a
 shared timeline. Echo repeats the shape of the system envelope, delayed and attenuated, so an
 utterance is dropped when **both** hold at the same lag:
 
@@ -40,7 +40,7 @@ the 0.5 s coverage wait is the gate's only latency cost.
 
 ## Ground truth
 
-Recordings under `~/Library/Application Support/MeetingsHelper/Meetings`, chosen because their
+Recordings under `~/Library/Application Support/MeetingHelper/Meetings`, chosen because their
 labels do not depend on the thing being measured:
 
 | Recording | Why it is usable |
@@ -94,8 +94,8 @@ the level signature of real speech. Not one dropped window had a level differenc
 ## Re-running it
 
 The replay is a throwaway test, not part of the suite — it depends on recordings that are not in
-the repository. Drop this into `Tests/MeetingsHelperTests`, run
-`xcodebuild ... test -only-testing:MeetingsHelperTests/EchoGateFixtureTests`, then delete it and
+the repository. Drop this into `Tests/MeetingHelperTests`, run
+`xcodebuild ... test -only-testing:MeetingHelperTests/EchoGateFixtureTests`, then delete it and
 `xcodegen generate` again.
 
 Feeding the two tracks in step matters. Appending a whole `system.wav` up front makes every window
@@ -105,7 +105,7 @@ nothing — on the 15-minute call that showed 2 drops instead of 72.
 ```swift
 import AVFoundation
 import XCTest
-@testable import MeetingsHelper
+@testable import MeetingHelper
 
 final class EchoGateFixtureTests: XCTestCase {
     final class Counter {
@@ -157,7 +157,7 @@ final class EchoGateFixtureTests: XCTestCase {
 
     func testGateOnRecordedMeetings() async throws {
         let root = URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent("Library/Application Support/MeetingsHelper/Meetings")
+            .appendingPathComponent("Library/Application Support/MeetingHelper/Meetings")
         let directories = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
 
         for directory in directories.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {

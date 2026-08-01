@@ -51,7 +51,7 @@ final class AudioTrackWriter {
         self.converter = converter
         self.timelineStartUptime = timelineStartUptime
         self.onSamples = onSamples
-        self.queue = DispatchQueue(label: "com.kovalev.MeetingsHelper.writer.\(label)", qos: .userInitiated)
+        self.queue = DispatchQueue(label: "com.kovalev.MeetingHelper.writer.\(label)", qos: .userInitiated)
 
         let settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatLinearPCM,

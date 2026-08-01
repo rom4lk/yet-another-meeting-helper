@@ -1,4 +1,4 @@
-name: MeetingsHelper
+name: MeetingHelper
 
 options:
   bundleIdPrefix: com.kovalev
@@ -25,7 +25,7 @@ settings:
     CURRENT_PROJECT_VERSION: "2"
 
 targets:
-  MeetingsHelper:
+  MeetingHelper:
     type: application
     platform: macOS
     preBuildScripts:
@@ -33,11 +33,11 @@ targets:
         basedOnDependencyAnalysis: false
         script: |
           if [ "${CODE_SIGNING_ALLOWED:-}" != "YES" ]; then
-            echo "error: MeetingsHelper must be code signed because macOS privacy permissions depend on a stable code identity."
+            echo "error: MeetingHelper must be code signed because macOS privacy permissions depend on a stable code identity."
             exit 1
           fi
     sources:
-      - path: Sources/MeetingsHelper
+      - path: Sources/MeetingHelper
       - path: Resources/Assets.xcassets
         buildPhase: resources
     dependencies:
@@ -45,13 +45,13 @@ targets:
         product: WhisperKit
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.kovalev.MeetingsHelper
-        PRODUCT_NAME: MeetingsHelper
+        PRODUCT_BUNDLE_IDENTIFIER: com.kovalev.MeetingHelper
+        PRODUCT_NAME: MeetingHelper
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         COMBINE_HIDPI_IMAGES: YES
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
     entitlements:
-      path: Resources/MeetingsHelper.entitlements
+      path: Resources/MeetingHelper.entitlements
       properties:
         # The app is intentionally NOT sandboxed: Core Audio process taps scoped to a
         # specific process and the Accessibility API (used to read meeting window titles)
@@ -62,8 +62,8 @@ targets:
     info:
       path: Resources/Info.plist
       properties:
-        CFBundleName: MeetingsHelper
-        CFBundleDisplayName: Meetings Helper
+        CFBundleName: MeetingHelper
+        CFBundleDisplayName: Meeting Helper
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundlePackageType: APPL
@@ -74,33 +74,33 @@ targets:
         NSMicrophoneUsageDescription: "Records your voice during the meeting."
         NSAudioCaptureUsageDescription: "Records the other participants' voices from the meeting app's audio stream."
         NSCalendarsFullAccessUsageDescription: "Fills in the meeting title from your calendar."
-  MeetingsHelperTests:
+  MeetingHelperTests:
     type: bundle.unit-test
     platform: macOS
     sources:
-      - path: Tests/MeetingsHelperTests
+      - path: Tests/MeetingHelperTests
     dependencies:
-      - target: MeetingsHelper
+      - target: MeetingHelper
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-  MeetingsHelperUITests:
+  MeetingHelperUITests:
     type: bundle.ui-testing
     platform: macOS
     sources:
-      - path: Tests/MeetingsHelperUITests
+      - path: Tests/MeetingHelperUITests
     dependencies:
-      - target: MeetingsHelper
+      - target: MeetingHelper
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
 
 schemes:
-  MeetingsHelper:
+  MeetingHelper:
     build:
       targets:
-        MeetingsHelper: all
+        MeetingHelper: all
     test:
       targets:
-        - MeetingsHelperTests
-        - MeetingsHelperUITests
+        - MeetingHelperTests
+        - MeetingHelperUITests

@@ -1,6 +1,6 @@
 import AudioToolbox
 import XCTest
-@testable import MeetingsHelper
+@testable import MeetingHelper
 
 final class SystemAudioTapTests: XCTestCase {
     func testAggregateContainsOnlyTheProcessTap() throws {

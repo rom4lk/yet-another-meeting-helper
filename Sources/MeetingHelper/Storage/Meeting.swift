@@ -56,7 +56,7 @@ struct Meeting: Identifiable, Codable, Hashable {
 enum MeetingLibrary {
     static let root: URL = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("MeetingsHelper", isDirectory: true)
+            .appendingPathComponent("MeetingHelper", isDirectory: true)
             .appendingPathComponent("Meetings", isDirectory: true)
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         return base

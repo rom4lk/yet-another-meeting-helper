@@ -15,7 +15,7 @@ actor TranscriptionEngine {
 
     private static let downloadBase: URL = {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appending(path: "MeetingsHelper", directoryHint: .isDirectory)
+            .appending(path: "MeetingHelper", directoryHint: .isDirectory)
             .appending(path: "Models", directoryHint: .isDirectory)
     }()
 
