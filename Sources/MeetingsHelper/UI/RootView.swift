@@ -5,6 +5,10 @@ enum SidebarItem: Hashable {
     case meeting(UUID)
 }
 
+private enum SidebarScrollTarget: Hashable {
+    case topInset
+}
+
 struct RootView: View {
     @EnvironmentObject private var controller: AppController
     @State private var selection: SidebarItem?
@@ -31,9 +35,6 @@ struct RootView: View {
                 .help(controller.isRecording ? "Stop recording (⌥⌘R)" : "Start recording manually (⌥⌘R)")
                 .disabled(controller.isStopping)
             }
-        }
-        .onChange(of: controller.isRecording) { _, isRecording in
-            selection = isRecording ? .active : selection
         }
         .alert("Error", isPresented: Binding(
             get: { controller.errorMessage != nil },
@@ -79,64 +80,90 @@ struct RootView: View {
     // Note: do not add `.navigationSplitViewColumnWidth` here — on macOS 15 it collapses the
     // sidebar content to nothing while keeping the column visible.
     private var sidebar: some View {
-        List(selection: $selection) {
-            if let session = controller.session {
-                Section("Now") {
-                    Label {
+        ScrollViewReader { proxy in
+            List(selection: $selection) {
+                if let session = controller.session {
+                    // A real first row gives scrollTo a stable target and leaves room for the
+                    // section header below the window toolbar.
+                    Color.clear
+                        .frame(height: 8)
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
+                        .accessibilityHidden(true)
+                        .id(SidebarScrollTarget.topInset)
+
+                    Section {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(session.title).lineLimit(1)
+                                Text(FloatingTranscriptView.format(session.elapsed))
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            Circle().fill(.red).frame(width: 8, height: 8)
+                        }
+                        .tag(SidebarItem.active)
+                    } header: {
+                        Text("Now")
+                            .accessibilityIdentifier("sidebar-now-header")
+                    }
+                }
+
+                Section {
+                    ForEach(controller.store.meetings) { meeting in
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(session.title).lineLimit(1)
-                            Text(FloatingTranscriptView.format(session.elapsed))
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
+                            Text(meeting.title).lineLimit(1)
+                            HStack(spacing: 6) {
+                                Text(meeting.startedAt.formatted(date: .abbreviated, time: .shortened))
+                                Text(meeting.formattedDuration).monospacedDigit()
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         }
-                    } icon: {
-                        Circle().fill(.red).frame(width: 8, height: 8)
+                        .tag(SidebarItem.meeting(meeting.id))
+                        .contextMenu {
+                            Button("Delete", role: .destructive) {
+                                deleteMeeting(meeting)
+                            }
+                        }
                     }
-                    .tag(SidebarItem.active)
+                } header: {
+                    Text("Meetings")
+                        .accessibilityIdentifier("sidebar-meetings-header")
+                }
+
+                PermissionsBanner()
+            }
+            .onChange(of: controller.isRecording) { _, isRecording in
+                guard isRecording else { return }
+
+                // macOS preserves the viewport when content is prepended. Reset it after the
+                // recording section exists, then select the active row.
+                DispatchQueue.main.async {
+                    proxy.scrollTo(SidebarScrollTarget.topInset, anchor: .top)
+                    selection = .active
                 }
             }
-
-            Section("Meetings") {
-                ForEach(controller.store.meetings) { meeting in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(meeting.title).lineLimit(1)
-                        HStack(spacing: 6) {
-                            Text(meeting.startedAt.formatted(date: .abbreviated, time: .shortened))
-                            Text(meeting.formattedDuration).monospacedDigit()
-                        }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
-                    .tag(SidebarItem.meeting(meeting.id))
-                    .contextMenu {
-                        Button("Delete", role: .destructive) {
-                            deleteMeeting(meeting)
-                        }
-                    }
+            .confirmationDialog(
+                "Delete long meeting?",
+                isPresented: Binding(
+                    get: { meetingPendingDeletion != nil },
+                    set: { if !$0 { meetingPendingDeletion = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: meetingPendingDeletion
+            ) { meeting in
+                Button("Delete Meeting", role: .destructive) {
+                    controller.store.delete(meeting)
+                    meetingPendingDeletion = nil
                 }
+                Button("Cancel", role: .cancel) {
+                    meetingPendingDeletion = nil
+                }
+            } message: { _ in
+                Text("This meeting is longer than 5 minutes. Deleting it permanently removes its recording and transcript.")
             }
-
-            PermissionsBanner()
-        }
-        .id(controller.isRecording)
-        .confirmationDialog(
-            "Delete long meeting?",
-            isPresented: Binding(
-                get: { meetingPendingDeletion != nil },
-                set: { if !$0 { meetingPendingDeletion = nil } }
-            ),
-            titleVisibility: .visible,
-            presenting: meetingPendingDeletion
-        ) { meeting in
-            Button("Delete Meeting", role: .destructive) {
-                controller.store.delete(meeting)
-                meetingPendingDeletion = nil
-            }
-            Button("Cancel", role: .cancel) {
-                meetingPendingDeletion = nil
-            }
-        } message: { _ in
-            Text("This meeting is longer than 5 minutes. Deleting it permanently removes its recording and transcript.")
         }
     }
 

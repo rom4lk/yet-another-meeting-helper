@@ -4,6 +4,7 @@ import SwiftUI
 struct MeetingsHelperApp: App {
     @StateObject private var controller = AppController()
     @Environment(\.scenePhase) private var scenePhase
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
         Window("Meetings", id: "main") {
@@ -41,6 +42,15 @@ struct MeetingsHelperApp: App {
         Settings {
             SettingsView()
                 .environmentObject(controller)
+        }
+    }
+}
+
+private final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let icon = NSImage(contentsOf: iconURL) {
+            NSApplication.shared.applicationIconImage = icon
         }
     }
 }

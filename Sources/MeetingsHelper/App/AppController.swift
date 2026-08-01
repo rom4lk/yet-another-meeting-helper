@@ -49,6 +49,13 @@ final class AppController: ObservableObject {
     // MARK: - Bootstrap
 
     func bootstrap() {
+#if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-testing-sidebar-recording-transition") {
+            scheduleSidebarLayoutTestTransition()
+            return
+        }
+#endif
+
         detector.onStart = { [weak self] meeting in
             self?.startRecording(for: meeting)
         }
@@ -62,6 +69,29 @@ final class AppController: ObservableObject {
         refreshModelState()
         preloadInstalledModel()
     }
+
+#if DEBUG
+    private func scheduleSidebarLayoutTestTransition() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self else { return }
+
+            let session = RecordingSession(
+                detected: DetectedMeeting(
+                    kind: .manual,
+                    title: "UI Test Recording",
+                    audioPrefixes: [],
+                    detectedAt: Date()
+                ),
+                settings: settings,
+                engine: engine
+            )
+            sessionObserver = session.objectWillChange.sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            self.session = session
+        }
+    }
+#endif
 
     func refreshPermissions() {
         systemAudioPermission = SystemAudioPermission.status()
