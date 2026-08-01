@@ -46,6 +46,40 @@ and written separately:
     transcript.json  lines with timecodes and roles
 ```
 
+### Folder-based synchronization
+
+The local Application Support directory remains the working library. Recording never writes into a
+cloud-backed directory, so a slow or offline sync service cannot interrupt audio capture. After a
+meeting is completely saved, the app can mirror its directory into a user-selected folder, normally
+one inside iCloud Drive:
+
+```text
+<selected folder>/
+    Meetings/<uuid>/       complete meeting directories
+    DeletedMeetings/       small deletion markers
+```
+
+The folder is stored as a macOS bookmark. No app-owned iCloud container or iCloud entitlement is
+required; iCloud Drive, Dropbox, or another provider is responsible for moving the ordinary files
+between Macs. The app reconciles the folder after a local change, whenever it becomes active, and
+every 30 seconds while synchronization is enabled.
+
+The retention setting is disabled by default and supports the newest 10, 30, 50, or all meetings.
+The limit is applied to the union of valid local and remote meeting metadata. Older remote copies
+are removed from the sync folder, while local copies are retained. A meeting present on only the
+remote side is downloaded when it belongs to the retained set.
+
+Meeting UUIDs prevent independently recorded meetings from colliding. If the same meeting changes
+on two Macs, the copy with the newest metadata modification date replaces the other complete directory.
+App-initiated deletion creates a permanent marker before removing the synchronized copy; this keeps
+an offline Mac from uploading an old local copy again later. Turning synchronization off stops
+reconciliation but deliberately leaves the current contents of the selected folder unchanged.
+
+This feature is synchronization, not an independent backup. The selected provider must have enough
+space for the audio files, and manually editing or deleting files inside the sync folder can bypass
+the app's conflict and deletion rules. A live two-Mac test is still required for every supported
+provider because download timing and placeholder behavior are controlled by that provider.
+
 Separate tracks provide the initial attribution without diarization: microphone speech is labelled
 "Me", and the meeting app's audio is labelled "Others". Speaker playback can leak into the
 microphone, so two additional stages refine that attribution.

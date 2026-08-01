@@ -14,7 +14,7 @@ struct MeetingHelperApp: App {
                 .onAppear { controller.bootstrap() }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active {
-                        controller.refreshPermissions()
+                        controller.applicationDidBecomeActive()
                     }
                 }
         }

@@ -1,4 +1,5 @@
 import AVFoundation
+import AppKit
 import Carbon.HIToolbox
 import Combine
 import Foundation
@@ -8,6 +9,7 @@ import SwiftUI
 final class AppController: ObservableObject {
     let settings = AppSettings()
     let store = MeetingStore()
+    let iCloudSync = ICloudMeetingSyncCoordinator()
     let detector = MeetingDetector()
 
     @Published private(set) var session: RecordingSession?
@@ -34,6 +36,7 @@ final class AppController: ObservableObject {
     private var hotkeys: [GlobalHotkey] = []
     private var sessionObserver: AnyCancellable?
     private var storeObserver: AnyCancellable?
+    private var iCloudSyncObserver: AnyCancellable?
 
     var isRecording: Bool { session != nil }
     var isPanelVisible: Bool { panelController.isVisible }
@@ -43,6 +46,15 @@ final class AppController: ObservableObject {
         // for views that observe only the controller.
         storeObserver = store.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
+        }
+        iCloudSyncObserver = iCloudSync.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        store.onLibraryChange = { [weak self] change in
+            self?.iCloudSync.handleLocalLibraryChange(change)
+        }
+        iCloudSync.onLocalLibraryChange = { [weak self] in
+            self?.store.reload()
         }
     }
 
@@ -68,6 +80,10 @@ final class AppController: ObservableObject {
         refreshPermissions()
         refreshModelState()
         preloadInstalledModel()
+        iCloudSync.update(
+            limit: settings.iCloudSyncLimit,
+            folderURL: settings.iCloudSyncFolderURL
+        )
     }
 
 #if DEBUG
@@ -180,6 +196,50 @@ final class AppController: ObservableObject {
         if enabled {
             preloadInstalledModel()
         }
+    }
+
+    func setICloudSyncLimit(_ limit: AppSettings.ICloudSyncLimit) {
+        settings.iCloudSyncLimit = limit
+        iCloudSync.update(limit: limit, folderURL: settings.iCloudSyncFolderURL)
+    }
+
+    func chooseICloudSyncFolder() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Sync Folder"
+        panel.message = "Choose a folder in iCloud Drive or another file-syncing service."
+        panel.prompt = "Choose"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = settings.iCloudSyncFolderURL
+
+        guard panel.runModal() == .OK, let folderURL = panel.url else { return }
+        guard !Self.pathsOverlap(folderURL, MeetingLibrary.root) else {
+            errorMessage = "Choose a sync folder outside Meeting Helper's local meeting library."
+            return
+        }
+
+        do {
+            try settings.setICloudSyncFolderURL(folderURL)
+            iCloudSync.update(limit: settings.iCloudSyncLimit, folderURL: folderURL)
+        } catch {
+            errorMessage = "Cannot save the sync folder: \(error.localizedDescription)"
+        }
+    }
+
+    func clearICloudSyncFolder() {
+        do {
+            try settings.setICloudSyncFolderURL(nil)
+            iCloudSync.update(limit: settings.iCloudSyncLimit, folderURL: nil)
+        } catch {
+            errorMessage = "Cannot clear the sync folder: \(error.localizedDescription)"
+        }
+    }
+
+    func applicationDidBecomeActive() {
+        refreshPermissions()
+        iCloudSync.applicationDidBecomeActive()
     }
 
     private func preloadInstalledModel() {
@@ -320,4 +380,10 @@ final class AppController: ObservableObject {
         formatter.dateFormat = "HH:mm"
         return formatter
     }()
+
+    private static func pathsOverlap(_ lhs: URL, _ rhs: URL) -> Bool {
+        let lhsComponents = lhs.standardizedFileURL.resolvingSymlinksInPath().pathComponents
+        let rhsComponents = rhs.standardizedFileURL.resolvingSymlinksInPath().pathComponents
+        return lhsComponents.starts(with: rhsComponents) || rhsComponents.starts(with: lhsComponents)
+    }
 }

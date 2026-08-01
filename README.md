@@ -12,6 +12,7 @@ and stop recording automatically, and keep a live transcript visible while you w
 - Echo filtering and transcript deduplication for cleaner speaker attribution.
 - Process-scoped audio capture for detected meetings, plus manual recording of all system audio.
 - Saved recordings, playback, transcripts, timestamps, and meeting metadata.
+- Optional synchronization through a user-selected iCloud Drive or other file-syncing folder.
 - Global shortcuts for starting a recording and showing or hiding the transcript panel.
 
 ## Build
@@ -89,6 +90,16 @@ the app.
 
 Open Settings in Meeting Helper and download the transcription model before the first meeting. The
 default model is about 1.5 GB and is not included in the app bundle.
+
+### Synchronize meetings through iCloud Drive
+
+Synchronization is off by default. In **Settings > iCloud**, choose a dedicated folder inside
+iCloud Drive, then choose how many of the newest meetings to keep synchronized: 10, 30, 50, or all
+meetings. The same folder must be selected in Meeting Helper on every Mac.
+
+The selected limit applies to the combined set of meetings found on the Mac and in the sync folder.
+Meetings beyond the limit remain in the local library but are removed from the sync folder. Turning
+synchronization off does not delete copies already in that folder.
 
 To check the installation, start a manual recording with **Option-Command-R**, speak into the
 microphone, play some system audio, stop the recording, and verify both tracks in the saved meeting.

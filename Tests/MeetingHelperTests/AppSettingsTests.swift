@@ -77,6 +77,69 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.minimumRecordingDuration, 10)
     }
 
+    func testICloudSyncLimitOptions() {
+        XCTAssertEqual(
+            AppSettings.ICloudSyncLimit.allCases,
+            [.disabled, .ten, .thirty, .fifty, .unlimited]
+        )
+        XCTAssertEqual(
+            AppSettings.ICloudSyncLimit.allCases.map(\.maximumMeetingCount),
+            [0, 10, 30, 50, nil]
+        )
+    }
+
+    func testICloudSyncDefaultsToDisabled() {
+        let suiteName = "AppSettingsTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = AppSettings(defaults: defaults)
+
+        XCTAssertEqual(settings.iCloudSyncLimit, .disabled)
+    }
+
+    func testICloudSyncLimitPersists() {
+        let suiteName = "AppSettingsTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = AppSettings(defaults: defaults)
+        settings.iCloudSyncLimit = .fifty
+
+        let restored = AppSettings(defaults: defaults)
+        XCTAssertEqual(restored.iCloudSyncLimit, .fifty)
+    }
+
+    func testUnknownICloudSyncLimitFallsBackToDisabled() {
+        let suiteName = "AppSettingsTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(20, forKey: "iCloudSyncLimit")
+
+        let settings = AppSettings(defaults: defaults)
+
+        XCTAssertEqual(settings.iCloudSyncLimit, .disabled)
+    }
+
+    func testICloudSyncFolderBookmarkPersists() throws {
+        let suiteName = "AppSettingsTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let folderURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AppSettingsTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folderURL) }
+
+        let settings = AppSettings(defaults: defaults)
+        try settings.setICloudSyncFolderURL(folderURL)
+
+        let restored = AppSettings(defaults: defaults)
+        XCTAssertEqual(
+            restored.iCloudSyncFolderURL?.standardizedFileURL,
+            folderURL.standardizedFileURL
+        )
+    }
+
     func testDeduplicationOptionPersists() {
         for deduplicationEnabled in [false, true] {
             let suiteName = "AppSettingsTests.\(UUID().uuidString)"

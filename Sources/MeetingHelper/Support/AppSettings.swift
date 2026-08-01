@@ -2,6 +2,34 @@ import Foundation
 
 @MainActor
 final class AppSettings: ObservableObject {
+    enum ICloudSyncLimit: Int, CaseIterable, Identifiable {
+        case disabled = 0
+        case ten = 10
+        case thirty = 30
+        case fifty = 50
+        case unlimited = -1
+
+        var id: Int { rawValue }
+
+        var displayName: String {
+            switch self {
+            case .disabled: return "Off"
+            case .ten: return "Last 10 meetings"
+            case .thirty: return "Last 30 meetings"
+            case .fifty: return "Last 50 meetings"
+            case .unlimited: return "Unlimited"
+            }
+        }
+
+        var maximumMeetingCount: Int? {
+            switch self {
+            case .disabled: return 0
+            case .ten, .thirty, .fifty: return rawValue
+            case .unlimited: return nil
+            }
+        }
+    }
+
     enum Language: String, CaseIterable, Identifiable {
         case auto
         case russian = "ru"
@@ -43,6 +71,10 @@ final class AppSettings: ObservableObject {
     @Published var minimumRecordingDuration: Int {
         didSet { defaults.set(minimumRecordingDuration, forKey: Keys.minimumRecordingDuration) }
     }
+    @Published var iCloudSyncLimit: ICloudSyncLimit {
+        didSet { defaults.set(iCloudSyncLimit.rawValue, forKey: Keys.iCloudSyncLimit) }
+    }
+    @Published private(set) var iCloudSyncFolderURL: URL?
     @Published var model: String { didSet { defaults.set(model, forKey: Keys.model) } }
     @Published var language: Language { didSet { defaults.set(language.rawValue, forKey: Keys.language) } }
 
@@ -56,6 +88,8 @@ final class AppSettings: ObservableObject {
         static let echoGate = "echoGateEnabled"
         static let showPanel = "showPanelOnStart"
         static let minimumRecordingDuration = "minimumRecordingDuration"
+        static let iCloudSyncLimit = "iCloudSyncLimit"
+        static let iCloudSyncFolderBookmark = "iCloudSyncFolderBookmark"
         static let model = "whisperModel"
         static let language = "transcriptionLanguage"
     }
@@ -70,6 +104,7 @@ final class AppSettings: ObservableObject {
             Keys.echoGate: true,
             Keys.showPanel: true,
             Keys.minimumRecordingDuration: 10,
+            Keys.iCloudSyncLimit: ICloudSyncLimit.disabled.rawValue,
             Keys.model: AppSettings.availableModels[0].id,
             Keys.language: Language.auto.rawValue
         ])
@@ -86,6 +121,10 @@ final class AppSettings: ObservableObject {
             : 10
         minimumRecordingDuration = minimumDuration
         defaults.set(minimumDuration, forKey: Keys.minimumRecordingDuration)
+        let storedICloudSyncLimit = defaults.integer(forKey: Keys.iCloudSyncLimit)
+        let selectedICloudSyncLimit = ICloudSyncLimit(rawValue: storedICloudSyncLimit) ?? .disabled
+        iCloudSyncLimit = selectedICloudSyncLimit
+        defaults.set(selectedICloudSyncLimit.rawValue, forKey: Keys.iCloudSyncLimit)
         let storedModel = defaults.string(forKey: Keys.model)
         let selectedModel = storedModel.flatMap { model in
             Self.availableModels.contains { $0.id == model } ? model : nil
@@ -93,5 +132,32 @@ final class AppSettings: ObservableObject {
         model = selectedModel
         defaults.set(selectedModel, forKey: Keys.model)
         language = Language(rawValue: defaults.string(forKey: Keys.language) ?? "auto") ?? .auto
+
+        let storedBookmark = defaults.data(forKey: Keys.iCloudSyncFolderBookmark)
+        var isStale = false
+        iCloudSyncFolderURL = storedBookmark.flatMap { bookmark in
+            try? URL(
+                resolvingBookmarkData: bookmark,
+                options: [.withoutUI],
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            )
+        }
+        if isStale, let iCloudSyncFolderURL,
+           let refreshedBookmark = try? iCloudSyncFolderURL.bookmarkData() {
+            defaults.set(refreshedBookmark, forKey: Keys.iCloudSyncFolderBookmark)
+        }
+    }
+
+    func setICloudSyncFolderURL(_ url: URL?) throws {
+        guard let url else {
+            iCloudSyncFolderURL = nil
+            defaults.removeObject(forKey: Keys.iCloudSyncFolderBookmark)
+            return
+        }
+
+        let bookmark = try url.bookmarkData()
+        defaults.set(bookmark, forKey: Keys.iCloudSyncFolderBookmark)
+        iCloudSyncFolderURL = url
     }
 }

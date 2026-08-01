@@ -2,7 +2,14 @@ import Foundation
 
 @MainActor
 final class MeetingStore: ObservableObject {
+    enum LibraryChange {
+        case updated
+        case deleted(UUID)
+    }
+
     @Published private(set) var meetings: [Meeting] = []
+
+    var onLibraryChange: ((LibraryChange) -> Void)?
 
     private let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
@@ -52,11 +59,16 @@ final class MeetingStore: ObservableObject {
             meetings.insert(meeting, at: 0)
             meetings.sort { $0.startedAt > $1.startedAt }
         }
+        onLibraryChange?(.updated)
     }
 
     func delete(_ meeting: Meeting) {
+        let wasSaved = meetings.contains { $0.id == meeting.id }
         try? FileManager.default.removeItem(at: MeetingLibrary.directory(for: meeting.id))
         meetings.removeAll { $0.id == meeting.id }
+        if wasSaved {
+            onLibraryChange?(.deleted(meeting.id))
+        }
     }
 
     func saveTranscript(_ lines: [TranscriptLine], for id: UUID) {
@@ -66,6 +78,9 @@ final class MeetingStore: ObservableObject {
             try data.write(to: MeetingLibrary.transcriptURL(for: id), options: .atomic)
         } catch {
             Log.store.error("Cannot save transcript: \(error, privacy: .public)")
+        }
+        if meetings.contains(where: { $0.id == id }) {
+            onLibraryChange?(.updated)
         }
     }
 
