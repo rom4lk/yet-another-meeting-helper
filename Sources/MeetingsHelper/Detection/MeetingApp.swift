@@ -60,7 +60,10 @@ struct MeetingApp: Identifiable, Hashable {
                                                    "com.microsoft.edgemac", "com.apple.Safari", "com.apple.WebKit",
                                                    "com.microsoft.teams2", "com.tinyspeck.slackmacgap"]
 
-    var runningApplication: NSRunningApplication? {
-        NSRunningApplication.runningApplications(withBundleIdentifier: mainBundleID).first
+    var runningApplications: [NSRunningApplication] {
+        NSWorkspace.shared.runningApplications.filter { application in
+            guard let bundleID = application.bundleIdentifier else { return false }
+            return bundleID == mainBundleID || bundleID.hasPrefix(mainBundleID + ".")
+        }
     }
 }

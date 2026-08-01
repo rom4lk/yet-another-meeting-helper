@@ -24,15 +24,7 @@ enum WindowTitles {
     }
 
     static func titles(forPID pid: pid_t) -> [String] {
-        guard isTrusted else { return [] }
-
-        let app = AXUIElementCreateApplication(pid)
-        var windowsValue: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windowsValue) == .success,
-              let windows = windowsValue as? [AXUIElement]
-        else { return [] }
-
-        return windows.compactMap { window in
+        windows(forPID: pid).compactMap { window in
             var titleValue: CFTypeRef?
             guard AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleValue) == .success,
                   let title = titleValue as? String,
@@ -42,8 +34,24 @@ enum WindowTitles {
         }
     }
 
+    static func hasWindows(forPID pid: pid_t) -> Bool {
+        !windows(forPID: pid).isEmpty
+    }
+
     static func titles(forBundleID bundleID: String) -> [String] {
         NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
             .flatMap { titles(forPID: $0.processIdentifier) }
+    }
+
+    private static func windows(forPID pid: pid_t) -> [AXUIElement] {
+        guard isTrusted else { return [] }
+
+        let app = AXUIElementCreateApplication(pid)
+        var windowsValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windowsValue) == .success,
+              let windows = windowsValue as? [AXUIElement]
+        else { return [] }
+
+        return windows
     }
 }

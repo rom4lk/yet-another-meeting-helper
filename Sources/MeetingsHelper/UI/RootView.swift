@@ -118,6 +118,7 @@ struct RootView: View {
 
             PermissionsBanner()
         }
+        .id(controller.isRecording)
         .confirmationDialog(
             "Delete long meeting?",
             isPresented: Binding(

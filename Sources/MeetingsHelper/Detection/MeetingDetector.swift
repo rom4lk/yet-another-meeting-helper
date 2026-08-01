@@ -141,19 +141,21 @@ final class MeetingDetector: ObservableObject {
         var detected: DetectedMeeting?
 
         for browser in MeetingApp.browsers {
-            guard let app = browser.runningApplication else { continue }
             guard AudioProcessLookup.isCapturingInput(prefixes: browser.audioBundleIDPrefixes) else { continue }
 
-            let titles = WindowTitles.titles(forPID: app.processIdentifier)
-            guard let title = titles.first(where: Self.looksLikeGoogleMeet) else { continue }
+            for app in browser.runningApplications {
+                guard let title = googleMeetTitle(for: app) else { continue }
 
-            detected = DetectedMeeting(
-                kind: .googleMeet,
-                title: Self.cleanMeetTitle(title),
-                audioPrefixes: browser.audioBundleIDPrefixes,
-                detectedAt: Date()
-            )
-            break
+                detected = DetectedMeeting(
+                    kind: .googleMeet,
+                    title: Self.cleanMeetTitle(title),
+                    audioPrefixes: browser.audioBundleIDPrefixes,
+                    detectedAt: Date()
+                )
+                break
+            }
+
+            if detected != nil { break }
         }
 
         if detected != nil {
@@ -170,6 +172,24 @@ final class MeetingDetector: ObservableObject {
                 end()
             }
         }
+    }
+
+    private func googleMeetTitle(for app: NSRunningApplication) -> String? {
+        let titles = WindowTitles.titles(forPID: app.processIdentifier)
+        if let title = titles.first(where: Self.looksLikeGoogleMeet) {
+            return title
+        }
+
+        // Chrome PWA windows expose neither AXTitle nor AXDocument. Their bundle records the
+        // installed app URL, so use that as the identity signal while AX confirms a real window.
+        guard current?.kind == .googleMeet || app.isActive else { return nil }
+        guard WindowTitles.hasWindows(forPID: app.processIdentifier) else { return nil }
+        guard let bundleURL = app.bundleURL,
+              let shortcutURL = Bundle(url: bundleURL)?.object(forInfoDictionaryKey: "CrAppModeShortcutURL") as? String,
+              URL(string: shortcutURL)?.host?.localizedCaseInsensitiveCompare("meet.google.com") == .orderedSame
+        else { return nil }
+
+        return app.localizedName ?? "Google Meet"
     }
 
     /// Google Meet window titles look like `Meet — abc-defg-hij` or `<name> - Google Meet`.
