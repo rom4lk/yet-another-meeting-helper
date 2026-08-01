@@ -65,7 +65,9 @@ the second signal is unavailable, and browser meeting detection turns off — Zo
 
 ## How recording works
 
-The microphone goes through `AVAudioEngine`. Automatically detected meetings use a Core Audio
+The microphone goes through the system voice-processing audio unit when acoustic echo
+cancellation is on, and through an `AVAudioEngine` tap when it is off; either way the capture
+survives input device switches mid-recording. Automatically detected meetings use a Core Audio
 process tap (`AudioHardwareCreateProcessTap`, macOS 14.4+) scoped to the detected app, so unrelated
 audio stays out of those recordings. Manual recordings use a global system audio tap and include
 all system output.
@@ -81,8 +83,17 @@ Both tracks are normalized to 16 kHz mono and written **separately**:
     transcript.json  lines with timecodes and roles
 ```
 
-Separate tracks give speaker attribution without diarization: everything from the microphone is
-"Me", everything from the app's audio stream is "Others".
+Separate tracks provide the initial attribution without diarization: microphone speech is labelled
+"Me", and the app's audio stream is labelled "Others". Speaker playback can leak into the
+microphone, so the cleanup options below refine that initial attribution.
+
+Two independent transcript cleanup options are enabled by default and can be switched off in
+Settings. Acoustic echo cancellation captures the microphone through the macOS voice-processing
+audio unit — the same echo canceller FaceTime uses — so anything the Mac plays is subtracted from
+the microphone signal before it reaches the recording and the transcriber. Transcript deduplication
+compares near-simultaneous lines from the two tracks and keeps the cleaner system-audio copy when
+both contain the same speech. Either option can run alone, both can run together, or both can be
+disabled.
 
 ## Transcript
 

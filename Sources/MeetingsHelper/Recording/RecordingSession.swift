@@ -35,9 +35,12 @@ final class RecordingSession: ObservableObject {
     @Published private(set) var systemSilent = false
 
     private var systemPeak: Float = 0
+    private var captureStartedAtUptime: TimeInterval = 0
 
     private let settings: AppSettings
     private let engine: TranscriptionEngine
+    private let acousticEchoCancellationEnabled: Bool
+    private let transcriptDeduplicationEnabled: Bool
 
     private let microphone = MicrophoneCapture()
     private var systemTap: SystemAudioTap?
@@ -54,12 +57,17 @@ final class RecordingSession: ObservableObject {
         self.detected = detected
         self.settings = settings
         self.engine = engine
+        self.acousticEchoCancellationEnabled = settings.acousticEchoCancellationEnabled
+        self.transcriptDeduplicationEnabled = settings.transcriptDeduplicationEnabled
         self.title = detected.title
     }
 
     // MARK: - Lifecycle
 
     func start() {
+        startedAt = Date()
+        captureStartedAtUptime = ProcessInfo.processInfo.systemUptime
+
         do {
             _ = try MeetingLibrary.createDirectory(for: meetingID)
         } catch {
@@ -139,7 +147,7 @@ final class RecordingSession: ObservableObject {
 
     private func startMicrophone() {
         do {
-            try microphone.start { [weak self] buffer in
+            try microphone.start(voiceProcessing: acousticEchoCancellationEnabled) { [weak self] buffer in
                 self?.micWriter?.append(buffer)
             }
 
@@ -151,7 +159,8 @@ final class RecordingSession: ObservableObject {
             micWriter = try AudioTrackWriter(
                 url: MeetingLibrary.micTrackURL(for: meetingID),
                 sourceFormat: format,
-                label: "mic"
+                label: "mic",
+                timelineStartUptime: captureStartedAtUptime
             ) { [weak self] samples in
                 self?.micTranscriber?.feed(samples)
             }
@@ -207,7 +216,8 @@ final class RecordingSession: ObservableObject {
             systemWriter = try AudioTrackWriter(
                 url: MeetingLibrary.systemTrackURL(for: meetingID),
                 sourceFormat: format,
-                label: "system"
+                label: "system",
+                timelineStartUptime: captureStartedAtUptime
             ) { [weak self] samples in
                 self?.systemTranscriber?.feed(samples)
             }
@@ -232,10 +242,10 @@ final class RecordingSession: ObservableObject {
         let language = settings.language.whisperCode
 
         micTranscriber = SourceTranscriber(source: .me, engine: engine, language: language) { [weak self] line in
-            self?.lines.append(line)
+            self?.receive(line)
         }
         systemTranscriber = SourceTranscriber(source: .others, engine: engine, language: language) { [weak self] line in
-            self?.lines.append(line)
+            self?.receive(line)
         }
 
         let model = settings.model
@@ -251,6 +261,14 @@ final class RecordingSession: ObservableObject {
             } catch {
                 transcriptionState = .failed(error.localizedDescription)
             }
+        }
+    }
+
+    private func receive(_ line: TranscriptLine) {
+        if transcriptDeduplicationEnabled {
+            TranscriptDeduplicator.insert(line, into: &lines)
+        } else {
+            lines.append(line)
         }
     }
 

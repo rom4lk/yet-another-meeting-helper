@@ -31,24 +31,35 @@ final class AppSettings: ObservableObject {
 
     @Published var autoDetectionEnabled: Bool { didSet { defaults.set(autoDetectionEnabled, forKey: Keys.autoDetection) } }
     @Published var liveTranscriptEnabled: Bool { didSet { defaults.set(liveTranscriptEnabled, forKey: Keys.liveTranscript) } }
+    @Published var acousticEchoCancellationEnabled: Bool {
+        didSet { defaults.set(acousticEchoCancellationEnabled, forKey: Keys.acousticEchoCancellation) }
+    }
+    @Published var transcriptDeduplicationEnabled: Bool {
+        didSet { defaults.set(transcriptDeduplicationEnabled, forKey: Keys.transcriptDeduplication) }
+    }
     @Published var showPanelOnStart: Bool { didSet { defaults.set(showPanelOnStart, forKey: Keys.showPanel) } }
     @Published var model: String { didSet { defaults.set(model, forKey: Keys.model) } }
     @Published var language: Language { didSet { defaults.set(language.rawValue, forKey: Keys.language) } }
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
 
     private enum Keys {
         static let autoDetection = "autoDetectionEnabled"
         static let liveTranscript = "liveTranscriptEnabled"
+        static let acousticEchoCancellation = "acousticEchoCancellationEnabled"
+        static let transcriptDeduplication = "transcriptDeduplicationEnabled"
         static let showPanel = "showPanelOnStart"
         static let model = "whisperModel"
         static let language = "transcriptionLanguage"
     }
 
-    init() {
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         defaults.register(defaults: [
             Keys.autoDetection: true,
             Keys.liveTranscript: true,
+            Keys.acousticEchoCancellation: true,
+            Keys.transcriptDeduplication: true,
             Keys.showPanel: true,
             Keys.model: AppSettings.availableModels[0].id,
             Keys.language: Language.auto.rawValue
@@ -56,6 +67,8 @@ final class AppSettings: ObservableObject {
 
         autoDetectionEnabled = defaults.bool(forKey: Keys.autoDetection)
         liveTranscriptEnabled = defaults.bool(forKey: Keys.liveTranscript)
+        acousticEchoCancellationEnabled = defaults.bool(forKey: Keys.acousticEchoCancellation)
+        transcriptDeduplicationEnabled = defaults.bool(forKey: Keys.transcriptDeduplication)
         showPanelOnStart = defaults.bool(forKey: Keys.showPanel)
         model = defaults.string(forKey: Keys.model) ?? AppSettings.availableModels[0].id
         language = Language(rawValue: defaults.string(forKey: Keys.language) ?? "auto") ?? .auto

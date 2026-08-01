@@ -30,6 +30,24 @@ struct SettingsView: View {
                 ))
                 .disabled(!controller.settings.liveTranscriptEnabled)
 
+                Toggle("Acoustic echo cancellation", isOn: Binding(
+                    get: { controller.settings.acousticEchoCancellationEnabled },
+                    set: { controller.settings.acousticEchoCancellationEnabled = $0 }
+                ))
+
+                Text("Captures the microphone through the macOS voice-processing audio unit — the same echo canceller FaceTime uses — so speaker playback does not leak into your track. Takes effect when the next recording starts.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Toggle("Remove duplicate transcript lines", isOn: Binding(
+                    get: { controller.settings.transcriptDeduplicationEnabled },
+                    set: { controller.settings.transcriptDeduplicationEnabled = $0 }
+                ))
+
+                Text("Removes near-simultaneous matching lines captured from both microphone and system audio. Takes effect when the next recording starts.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 Picker("Language", selection: Binding(
                     get: { controller.settings.language },
                     set: { controller.settings.language = $0 }
