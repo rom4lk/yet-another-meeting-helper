@@ -21,12 +21,12 @@ final class AppSettings: ObservableObject {
         var whisperCode: String? { self == .auto ? nil : rawValue }
     }
 
-    /// Model identifiers understood by WhisperKit's model repository.
+    nonisolated static let parakeetModelID = "parakeet-tdt-0.6b-v3"
+
+    /// Model identifiers understood by the corresponding transcription backend.
     static let availableModels: [(id: String, name: String)] = [
-        ("openai_whisper-large-v3-v20240930_turbo", "large-v3 turbo — accurate, ~1.5 GB"),
-        ("openai_whisper-large-v3-v20240930_626MB", "large-v3 compressed — a compromise, ~630 MB"),
-        ("openai_whisper-small", "small — fast, ~470 MB"),
-        ("openai_whisper-base", "base — draft quality, ~150 MB")
+        ("openai_whisper-large-v3-v20240930_turbo", "Whisper large-v3 turbo — accurate, ~1.5 GB"),
+        (parakeetModelID, "Parakeet TDT v3 — fast, multilingual, ~600 MB")
     ]
     static let minimumRecordingDurations = [5, 10, 30, 60, 300]
 
@@ -86,7 +86,12 @@ final class AppSettings: ObservableObject {
             : 10
         minimumRecordingDuration = minimumDuration
         defaults.set(minimumDuration, forKey: Keys.minimumRecordingDuration)
-        model = defaults.string(forKey: Keys.model) ?? AppSettings.availableModels[0].id
+        let storedModel = defaults.string(forKey: Keys.model)
+        let selectedModel = storedModel.flatMap { model in
+            Self.availableModels.contains { $0.id == model } ? model : nil
+        } ?? Self.availableModels[0].id
+        model = selectedModel
+        defaults.set(selectedModel, forKey: Keys.model)
         language = Language(rawValue: defaults.string(forKey: Keys.language) ?? "auto") ?? .auto
     }
 }

@@ -123,10 +123,9 @@ final class AppController: ObservableObject {
     }
 
     func requestAccessibilityPermission() {
-        if !WindowTitles.requestTrust() {
-            WindowTitles.openSystemSettings()
-        }
         refreshPermissions()
+        guard !accessibilityGranted else { return }
+        WindowTitles.openSystemSettings()
     }
 
     // MARK: - Transcription model

@@ -3,6 +3,30 @@ import XCTest
 
 @MainActor
 final class AppSettingsTests: XCTestCase {
+    func testParakeetMultilingualModelIsAvailable() {
+        XCTAssertTrue(AppSettings.availableModels.contains { model in
+            model.id == AppSettings.parakeetModelID
+        })
+    }
+
+    func testOnlyTurboAndParakeetModelsAreAvailable() {
+        XCTAssertEqual(
+            AppSettings.availableModels.map(\.id),
+            ["openai_whisper-large-v3-v20240930_turbo", AppSettings.parakeetModelID]
+        )
+    }
+
+    func testRemovedModelFallsBackToTurbo() {
+        let suiteName = "AppSettingsTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("openai_whisper-small", forKey: "whisperModel")
+
+        let settings = AppSettings(defaults: defaults)
+
+        XCTAssertEqual(settings.model, "openai_whisper-large-v3-v20240930_turbo")
+    }
+
     func testMinimumRecordingDurationOptions() {
         XCTAssertEqual(AppSettings.minimumRecordingDurations, [5, 10, 30, 60, 300])
     }

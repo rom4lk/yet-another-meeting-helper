@@ -7,6 +7,7 @@ DerivedData/
 *.xcworkspace/xcuserdata/
 xcuserdata/
 *.xcuserstate
+Config/LocalSigning.xcconfig
 
 # SPM
 .build/

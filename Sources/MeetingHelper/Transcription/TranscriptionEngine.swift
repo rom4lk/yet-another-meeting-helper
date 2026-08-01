@@ -1,8 +1,10 @@
 import Foundation
+import FluidAudio
 import WhisperKit
 
-/// Owns the WhisperKit pipeline. Both tracks funnel their chunks through this actor, and an
-/// explicit gate keeps the model serial even while the actor is reentrant at suspension points.
+/// Owns the selected speech recognition pipeline. Both tracks funnel their chunks through this
+/// actor, and an explicit gate keeps the model serial even while the actor is reentrant at
+/// suspension points.
 actor TranscriptionEngine {
     enum State: Equatable {
         case idle
@@ -45,6 +47,7 @@ actor TranscriptionEngine {
 
     private(set) var state: State = .idle
     private var whisperKit: WhisperKit?
+    private var parakeet: AsrManager?
     private var loadedModel: String?
     private var loadTask: Task<Void, Error>?
     private var loadingModel: String?
@@ -71,11 +74,17 @@ actor TranscriptionEngine {
         "."
     ]
 
-    /// Whether the model files are already in the Hugging Face cache, so a download would be a
-    /// no-op. Checks the three CoreML bundles `loadModels` requires, because an interrupted
-    /// download leaves the folder in place with only part of them.
+    /// Whether every file required by the selected backend is already cached, so a download would
+    /// be a no-op. Checking the full set matters because interrupted downloads leave partial model
+    /// folders behind.
     static func isDownloaded(_ model: String) -> Bool {
-        downloadedModelFolder(model) != nil
+        if model == AppSettings.parakeetModelID {
+            return AsrModels.modelsExist(
+                at: AsrModels.defaultCacheDirectory(for: .v3),
+                version: .v3
+            )
+        }
+        return downloadedModelFolder(model) != nil
     }
 
     private static func downloadedModelFolder(_ model: String) -> URL? {
@@ -107,8 +116,9 @@ actor TranscriptionEngine {
 
     /// Downloads the model if it is not cached yet, then loads it.
     ///
-    /// - Parameter onProgress: fraction of the download, `1` once the bytes are in and the model
-    ///   is being loaded into memory. Never called for an already cached model.
+    /// - Parameter onProgress: fraction of the download when the backend exposes progress, `1`
+    ///   once the bytes are in and the model is being loaded into memory. Never called for an
+    ///   already cached model.
     func prepare(model: String, onProgress: (@Sendable (Double) -> Void)? = nil) async throws {
         // Wait out a load already in flight — it may be for another model, in which case the
         // check below still sends us down the loading path.
@@ -121,39 +131,52 @@ actor TranscriptionEngine {
             }
             // The task installs the model before it completes. Its initiating caller may not
             // have resumed yet to publish `.ready`, so do not start the same load a second time.
-            if activeModel == model, whisperKit != nil { return }
+            if activeModel == model, hasLoadedModel(model) { return }
         }
-        if case .ready = state, whisperKit != nil, loadedModel == model { return }
+        if case .ready = state, hasLoadedModel(model), loadedModel == model { return }
 
         state = .loading
         loadingModel = model
         loadGeneration += 1
         let generation = loadGeneration
+        whisperKit = nil
+        parakeet = nil
         let task = Task<Void, Error> {
-            let folder: URL
-            if let downloadedFolder = Self.downloadedModelFolder(model) {
-                folder = downloadedFolder
-            } else {
-                folder = try await WhisperKit.download(
-                    variant: model,
-                    downloadBase: Self.downloadBase,
-                    from: Self.repo
-                ) { progress in
+            if model == AppSettings.parakeetModelID {
+                let models = try await AsrModels.downloadAndLoad(version: .v3) { progress in
                     onProgress?(progress.fractionCompleted)
                 }
-                onProgress?(1)
+                let manager = AsrManager(config: .default)
+                try await manager.loadModels(models)
+                self.parakeet = manager
+                self.whisperKit = nil
+            } else {
+                let folder: URL
+                if let downloadedFolder = Self.downloadedModelFolder(model) {
+                    folder = downloadedFolder
+                } else {
+                    folder = try await WhisperKit.download(
+                        variant: model,
+                        downloadBase: Self.downloadBase,
+                        from: Self.repo
+                    ) { progress in
+                        onProgress?(progress.fractionCompleted)
+                    }
+                    onProgress?(1)
+                }
+                let config = WhisperKitConfig(
+                    model: model,
+                    modelFolder: folder.path,
+                    verbose: false,
+                    logLevel: .error,
+                    prewarm: true,
+                    load: true,
+                    download: false
+                )
+                let kit = try await WhisperKit(config)
+                self.whisperKit = kit
+                self.parakeet = nil
             }
-            let config = WhisperKitConfig(
-                model: model,
-                modelFolder: folder.path,
-                verbose: false,
-                logLevel: .error,
-                prewarm: true,
-                load: true,
-                download: false
-            )
-            let kit = try await WhisperKit(config)
-            self.whisperKit = kit
         }
         loadTask = task
 
@@ -164,14 +187,14 @@ actor TranscriptionEngine {
             loadedModel = model
             loadTask = nil
             loadingModel = nil
-            Log.asr.notice("WhisperKit ready: \(model, privacy: .public)")
+            Log.asr.notice("Transcription model ready: \(model, privacy: .public)")
         } catch {
             guard generation == loadGeneration else { throw error }
             state = .failed(error.localizedDescription)
             loadedModel = nil
             loadTask = nil
             loadingModel = nil
-            Log.asr.error("WhisperKit failed to load: \(error, privacy: .public)")
+            Log.asr.error("Transcription model failed to load: \(error, privacy: .public)")
             throw error
         }
     }
@@ -184,30 +207,47 @@ actor TranscriptionEngine {
 
         // Audio starts flowing before the model finishes loading; hold the chunk instead of
         // dropping it, so the first minute of a meeting is not lost.
-        if whisperKit == nil, let loadTask {
+        if !hasLoadedModel(loadedModel), let loadTask {
             try? await loadTask.value
         }
-        guard let whisperKit else { return nil }
 
-        let options = DecodingOptions(
-            task: .transcribe,
-            language: language,
-            temperature: 0,
-            detectLanguage: language == nil,
-            skipSpecialTokens: true,
-            withoutTimestamps: true,
-            compressionRatioThreshold: 2.4,
-            logProbThreshold: -1.0,
-            noSpeechThreshold: 0.6
-        )
+        let text: String
+        if let parakeet {
+            var decoderState = TdtDecoderState.make()
+            let languageHint: Language?
+            switch language {
+            case "ru": languageHint = .russian
+            case "en": languageHint = .english
+            default: languageHint = nil
+            }
+            guard let result = try? await parakeet.transcribe(
+                samples,
+                decoderState: &decoderState,
+                language: languageHint
+            ) else { return nil }
+            text = result.text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        } else if let whisperKit {
+            let options = DecodingOptions(
+                task: .transcribe,
+                language: language,
+                temperature: 0,
+                detectLanguage: language == nil,
+                skipSpecialTokens: true,
+                withoutTimestamps: true,
+                compressionRatioThreshold: 2.4,
+                logProbThreshold: -1.0,
+                noSpeechThreshold: 0.6
+            )
 
-        let results = await whisperKit.transcribe(audioArrays: [samples], decodeOptions: options)
-        guard let segments = results.first ?? nil else { return nil }
-
-        let text = segments
-            .map(\.text)
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+            let results = await whisperKit.transcribe(audioArrays: [samples], decodeOptions: options)
+            guard let segments = results.first ?? nil else { return nil }
+            text = segments
+                .map(\.text)
+                .joined(separator: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            return nil
+        }
 
         guard !text.isEmpty else { return nil }
         guard !Self.hallucinations.contains(text.lowercased()) else {
@@ -216,6 +256,13 @@ actor TranscriptionEngine {
         }
 
         return text
+    }
+
+    private func hasLoadedModel(_ model: String?) -> Bool {
+        if model == AppSettings.parakeetModelID {
+            return parakeet != nil
+        }
+        return whisperKit != nil
     }
 
     private func acquireTranscriptionSlot() async {

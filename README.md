@@ -7,7 +7,7 @@ and stop recording automatically, and keep a live transcript visible while you w
 
 - Automatic meeting detection for Zoom and Google Meet in Chrome, Arc, Edge, and Safari.
 - Separate microphone and meeting-audio tracks, labelled as "Me" and "Others" in the transcript.
-- On-device transcription with WhisperKit and a choice of Core ML models.
+- On-device transcription with WhisperKit or multilingual Parakeet TDT v3.
 - An optional always-on-top transcript panel with real-time preview updates.
 - Echo filtering and transcript deduplication for cleaner speaker attribution.
 - Process-scoped audio capture for detected meetings, plus manual recording of all system audio.
@@ -46,7 +46,7 @@ Before the first build, configure signing in Xcode:
    unique value such as `com.yourname.MeetingHelper`.
 
 Select the **MeetingHelper** scheme and **My Mac**, then press **Command-R**. The first build can take
-a few minutes while Xcode downloads WhisperKit and its dependencies.
+a few minutes while Xcode downloads the transcription dependencies.
 
 The app must remain code signed because macOS privacy permissions are tied to its code identity.
 The project rejects builds made with `CODE_SIGNING_ALLOWED=NO`. Regenerating the project can reset
@@ -54,9 +54,17 @@ your local signing selection, so check it again after running `xcodegen generate
 
 ### Build and run from the terminal
 
-Configure signing in Xcode once, then run from the repository root:
+Create the ignored local signing configuration once and replace `YOUR_TEAM_ID` with the Apple
+Development team shown in Xcode under **Settings > Accounts**:
 
 ```bash
+cp Config/LocalSigning.xcconfig.example Config/LocalSigning.xcconfig
+```
+
+Then generate, build, and run from the repository root:
+
+```bash
+xcodegen generate &&
 xcodebuild \
   -project MeetingHelper.xcodeproj \
   -scheme MeetingHelper \
@@ -70,7 +78,8 @@ open .build/Build/Products/Debug/MeetingHelper.app
 ```
 
 The Debug app is development-signed for local use. It is not Developer ID-signed or notarized for
-distribution.
+distribution. Meeting Helper rejects ad-hoc builds because their identity changes on every rebuild
+and causes macOS to request privacy permissions again.
 
 ### First run
 
@@ -93,9 +102,9 @@ Automatic recordings capture audio only from the detected meeting app. Manual re
 all system audio. The microphone and meeting audio are stored separately, which lets the transcript
 distinguish "Me" from "Others".
 
-Transcription runs locally with WhisperKit. Echo filtering and transcript deduplication reduce
-speaker leakage and duplicate lines. See [docs/how-it-works.md](docs/how-it-works.md) for the
-implementation details.
+Transcription runs locally with WhisperKit or Parakeet TDT v3. Echo filtering and transcript
+deduplication reduce speaker leakage and duplicate lines. See
+[docs/how-it-works.md](docs/how-it-works.md) for the implementation details.
 
 ## Permissions
 
@@ -123,6 +132,5 @@ Not verified: the system audio track — in the test meeting the other participa
 permission"; for that case the interface has a warning that appears if the tap hands back zeros for
 20 seconds.
 
-Transcription has not been verified either: the test meeting lasted 20 seconds, and the model did not
-finish downloading in that time. The first recording pulls the Whisper model (~1.5 GB), which is a
-one-off.
+Transcription has not been verified either: the test meeting lasted 20 seconds, and the selected
+model did not finish downloading in that time. Model downloads are one-off.

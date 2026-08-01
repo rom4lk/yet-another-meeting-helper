@@ -74,16 +74,19 @@ words for the same speech. Deduplication is enabled by default and can be disabl
 
 ## Transcription
 
-Transcription uses WhisperKit and Core ML. The model is selected in Settings, with
-`openai_whisper-large-v3-v20240930_turbo` as the default. Model files are stored under:
+Transcription uses Core ML through either WhisperKit or FluidAudio. Settings offers Whisper
+large-v3 turbo and multilingual Parakeet TDT v3, with Whisper as the default. Whisper model files
+are stored under:
 
 ```text
 ~/Library/Application Support/MeetingHelper/Models
 ```
 
-Whisper is not a streaming model, so an energy-based VAD with an adaptive threshold divides each
-track into utterances. An utterance closes after 0.8 seconds of silence or is forced closed after 25
-seconds. Each track has its own transcriber, and both use a shared actor that owns the model.
+Parakeet uses FluidAudio's model cache under `~/Library/Application Support/FluidAudio/Models`.
+Both backends process complete audio buffers, so an energy-based VAD with an adaptive threshold
+divides each track into utterances. An utterance closes after 0.8 seconds of silence or is forced
+closed after 25 seconds. Each track has its own transcriber, and both use a shared actor that owns
+the selected model.
 
 Optional real-time updates recognize an expanding, overlapping audio snapshot every two seconds.
 Each result updates a preview line in place. After a pause, the full-utterance result replaces the
@@ -100,6 +103,11 @@ prepares Core ML without contacting the model repository.
 
 The app is intentionally not sandboxed because process-scoped audio taps and the Accessibility API
 are unavailable under App Sandbox.
+
+Local builds use an Apple Development identity configured in the ignored
+`Config/LocalSigning.xcconfig` file. A stable signing identity is required because macOS privacy
+permissions are tied to the app's designated code requirement; ad-hoc signatures change whenever
+the executable changes and therefore invalidate previously granted access.
 
 System audio access has no public API for checking its state. Process bundle IDs remain visible
 without permission, and `AudioHardwareCreateProcessTap` returns `noErr` when access is denied while
