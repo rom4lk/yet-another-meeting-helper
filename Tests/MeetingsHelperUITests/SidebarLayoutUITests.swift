@@ -3,6 +3,15 @@ import XCTest
 final class SidebarLayoutUITests: XCTestCase {
     private let minimumToolbarGap: CGFloat = 8
 
+    func testSettingsButtonIsAvailableInMainToolbar() {
+        let app = XCUIApplication()
+        app.launch()
+
+        let settingsButton = app.buttons.matching(identifier: "settings-button").firstMatch
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 5), "The Settings button did not appear")
+        XCTAssertTrue(settingsButton.isEnabled, "The Settings button is disabled")
+    }
+
     func testSidebarContentRemainsBelowToolbarWhenRecordingStarts() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing-sidebar-recording-transition"]

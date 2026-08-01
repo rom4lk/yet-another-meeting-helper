@@ -34,6 +34,12 @@ struct RootView: View {
                 }
                 .help(controller.isRecording ? "Stop recording (⌥⌘R)" : "Start recording manually (⌥⌘R)")
                 .disabled(controller.isStopping)
+
+                SettingsLink {
+                    Label("Settings", systemImage: "gearshape")
+                }
+                .help("Open settings (⌘,)")
+                .accessibilityIdentifier("settings-button")
             }
         }
         .alert("Error", isPresented: Binding(
