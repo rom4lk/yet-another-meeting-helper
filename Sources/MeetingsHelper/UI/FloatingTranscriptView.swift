@@ -53,6 +53,13 @@ struct FloatingTranscriptView: View {
 
             Spacer()
 
+            if let session = controller.session, session.echoGateFiltered > 0 {
+                Label("\(session.echoGateFiltered)", systemImage: "waveform.badge.minus")
+                    .font(.system(size: 11))
+                    .foregroundStyle(session.echoGateFiring ? Color.green : Color.secondary)
+                    .help("Echo gate: \(session.echoGateFiltered) phrases of speaker leakage kept out of the transcript")
+            }
+
             if let session = controller.session {
                 Text(Self.format(session.elapsed))
                     .font(.system(size: 11).monospacedDigit())

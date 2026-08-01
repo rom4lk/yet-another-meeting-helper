@@ -76,28 +76,6 @@ extension AudioObjectID {
         )
     }
 
-    static func readDefaultOutputDevice() throws -> AudioDeviceID {
-        try AudioObjectID.system.read(
-            kAudioHardwarePropertyDefaultOutputDevice,
-            defaultValue: AudioDeviceID.unknown
-        )
-    }
-
-    static func readDefaultSystemOutputDevice() throws -> AudioDeviceID {
-        try AudioObjectID.system.read(
-            kAudioHardwarePropertyDefaultSystemOutputDevice,
-            defaultValue: AudioDeviceID.unknown
-        )
-    }
-
-    static func setDefaultOutputDevice(_ deviceID: AudioDeviceID) throws {
-        try AudioObjectID.system.write(kAudioHardwarePropertyDefaultOutputDevice, value: deviceID)
-    }
-
-    static func setDefaultSystemOutputDevice(_ deviceID: AudioDeviceID) throws {
-        try AudioObjectID.system.write(kAudioHardwarePropertyDefaultSystemOutputDevice, value: deviceID)
-    }
-
     func readDeviceName() throws -> String {
         try readString(kAudioObjectPropertyName)
     }
@@ -142,20 +120,5 @@ extension AudioObjectID {
     func readBool(_ selector: AudioObjectPropertySelector) throws -> Bool {
         let value: UInt32 = try read(selector, defaultValue: 0)
         return value == 1
-    }
-
-    func write<T>(
-        _ selector: AudioObjectPropertySelector,
-        scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal,
-        element: AudioObjectPropertyElement = kAudioObjectPropertyElementMain,
-        value: T
-    ) throws {
-        var address = AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: element)
-        var mutableValue = value
-        let dataSize = UInt32(MemoryLayout<T>.size)
-        let err = withUnsafePointer(to: &mutableValue) { pointer in
-            AudioObjectSetPropertyData(self, &address, 0, nil, dataSize, pointer)
-        }
-        guard err == noErr else { throw CoreAudioError("Cannot write property \(selector): \(err)") }
     }
 }

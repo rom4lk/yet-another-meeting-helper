@@ -3,32 +3,51 @@ import XCTest
 
 @MainActor
 final class AppSettingsTests: XCTestCase {
-    func testAudioCleanupOptionsPersistIndependently() {
-        for echoCancellationEnabled in [false, true] {
-            for deduplicationEnabled in [false, true] {
-                let suiteName = "AppSettingsTests.\(UUID().uuidString)"
-                let defaults = UserDefaults(suiteName: suiteName)!
-                defer { defaults.removePersistentDomain(forName: suiteName) }
+    func testDeduplicationOptionPersists() {
+        for deduplicationEnabled in [false, true] {
+            let suiteName = "AppSettingsTests.\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suiteName)!
+            defer { defaults.removePersistentDomain(forName: suiteName) }
 
-                let settings = AppSettings(defaults: defaults)
-                settings.acousticEchoCancellationEnabled = echoCancellationEnabled
-                settings.transcriptDeduplicationEnabled = deduplicationEnabled
+            let settings = AppSettings(defaults: defaults)
+            settings.transcriptDeduplicationEnabled = deduplicationEnabled
 
-                let restored = AppSettings(defaults: defaults)
-                XCTAssertEqual(restored.acousticEchoCancellationEnabled, echoCancellationEnabled)
-                XCTAssertEqual(restored.transcriptDeduplicationEnabled, deduplicationEnabled)
-            }
+            let restored = AppSettings(defaults: defaults)
+            XCTAssertEqual(restored.transcriptDeduplicationEnabled, deduplicationEnabled)
         }
     }
 
-    func testAudioCleanupOptionsDefaultToEnabled() {
+    func testDeduplicationDefaultsToEnabled() {
         let suiteName = "AppSettingsTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let settings = AppSettings(defaults: defaults)
 
-        XCTAssertTrue(settings.acousticEchoCancellationEnabled)
         XCTAssertTrue(settings.transcriptDeduplicationEnabled)
+    }
+
+    func testEchoGateOptionPersists() {
+        for gateEnabled in [false, true] {
+            let suiteName = "AppSettingsTests.\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suiteName)!
+            defer { defaults.removePersistentDomain(forName: suiteName) }
+
+            let settings = AppSettings(defaults: defaults)
+            settings.echoGateEnabled = gateEnabled
+
+            let restored = AppSettings(defaults: defaults)
+            XCTAssertEqual(restored.echoGateEnabled, gateEnabled)
+        }
+    }
+
+    func testEchoGateDefaultsToEnabled() {
+        let suiteName = "AppSettingsTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = AppSettings(defaults: defaults)
+
+        XCTAssertTrue(settings.echoGateEnabled)
     }
 }

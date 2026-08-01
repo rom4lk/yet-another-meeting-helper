@@ -262,8 +262,12 @@ final class AppController: ObservableObject {
         Task {
             let meeting = await session.stop()
             let lines = session.sortedLines
-            store.save(meeting)
-            store.saveTranscript(lines, for: meeting.id)
+            if meeting.shouldBeSaved {
+                store.save(meeting)
+                store.saveTranscript(lines, for: meeting.id)
+            } else {
+                store.delete(meeting)
+            }
 
             self.session = nil
             self.sessionObserver = nil

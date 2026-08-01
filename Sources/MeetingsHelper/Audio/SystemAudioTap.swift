@@ -12,6 +12,10 @@ final class SystemAudioTap {
     private let scope: Scope
     private let queue = DispatchQueue(label: "com.kovalev.MeetingsHelper.systemTap", qos: .userInitiated)
 
+    private static let initializationAttempts = 100
+    private static let ioAttempts = 20
+    private static let retryDelay: TimeInterval = 0.01
+
     private var tapID = AudioObjectID.unknown
     private var aggregateDeviceID = AudioObjectID.unknown
     private var ioProcID: AudioDeviceIOProcID?
@@ -24,9 +28,8 @@ final class SystemAudioTap {
 
     deinit { stop() }
 
-    /// Starts delivering buffers on a private serial queue. The buffer is only valid for the
-    /// duration of the callback — copy anything you need to keep.
-    func start(onBuffer: @escaping (AVAudioPCMBuffer) -> Void) throws {
+    /// Creates the process tap and waits until its aggregate device exposes an input stream.
+    func prepare() throws {
         let description: CATapDescription
         switch scope {
         case .processes(let processObjectIDs):
@@ -53,39 +56,66 @@ final class SystemAudioTap {
         }
         self.format = format
 
-        // The tap has to live inside an aggregate device before we can pull samples from it.
-        let outputUID = try AudioObjectID.readDefaultSystemOutputDevice().readDeviceUID()
-        let aggregateDescription: [String: Any] = [
-            kAudioAggregateDeviceNameKey: "MeetingsHelper Tap",
-            kAudioAggregateDeviceUIDKey: UUID().uuidString,
-            kAudioAggregateDeviceMainSubDeviceKey: outputUID,
-            kAudioAggregateDeviceIsPrivateKey: true,
-            kAudioAggregateDeviceIsStackedKey: false,
-            kAudioAggregateDeviceTapAutoStartKey: true,
-            kAudioAggregateDeviceSubDeviceListKey: [
-                [kAudioSubDeviceUIDKey: outputUID]
-            ],
-            kAudioAggregateDeviceTapListKey: [
-                [
-                    kAudioSubTapDriftCompensationKey: true,
-                    kAudioSubTapUIDKey: description.uuid.uuidString
-                ]
-            ]
-        ]
+        // The aggregate needs only the tap. Adding the physical output device contributes a
+        // second input buffer on some routes, so the callback no longer matches the tap format.
+        let aggregateDescription = Self.aggregateDescription(tapUUID: description.uuid)
 
         err = AudioHardwareCreateAggregateDevice(aggregateDescription as CFDictionary, &aggregateDeviceID)
         guard err == noErr, aggregateDeviceID.isValid else {
             throw CoreAudioError("Cannot create aggregate device: \(err)")
         }
 
-        err = AudioDeviceCreateIOProcIDWithBlock(&ioProcID, aggregateDeviceID, queue) { _, inputData, _, _, _ in
-            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, bufferListNoCopy: inputData, deallocator: nil) else { return }
-            onBuffer(buffer)
+        do {
+            try waitForAggregateInputStream()
+        } catch {
+            stop()
+            throw error
         }
-        guard err == noErr else { throw CoreAudioError("Cannot create IO proc: \(err)") }
+    }
 
-        err = AudioDeviceStart(aggregateDeviceID, ioProcID)
-        guard err == noErr else { throw CoreAudioError("Cannot start aggregate device: \(err)") }
+    /// Starts delivering buffers on a private serial queue. The buffer is only valid for the
+    /// duration of the callback — copy anything you need to keep.
+    func start(
+        onFirstBuffer: @escaping () -> Void,
+        onBuffer: @escaping (AVAudioPCMBuffer) -> Void
+    ) throws {
+        guard let format, aggregateDeviceID.isValid else {
+            throw CoreAudioError("System audio tap was not prepared.")
+        }
+
+        final class DeliveryState {
+            var deliveredFirstBuffer = false
+            var reportedInvalidLayout = false
+        }
+        let deliveryState = DeliveryState()
+
+        try createIOProc { inputData in
+            let bufferCount = Int(inputData.pointee.mNumberBuffers)
+            let expectedBufferCount = format.isInterleaved ? 1 : Int(format.channelCount)
+            guard bufferCount == expectedBufferCount else {
+                if !deliveryState.reportedInvalidLayout {
+                    deliveryState.reportedInvalidLayout = true
+                    Log.audio.error(
+                        "System tap delivered \(bufferCount, privacy: .public) buffers; expected \(expectedBufferCount, privacy: .public)"
+                    )
+                }
+                return
+            }
+
+            guard let buffer = AVAudioPCMBuffer(
+                pcmFormat: format,
+                bufferListNoCopy: inputData,
+                deallocator: nil
+            ) else { return }
+
+            onBuffer(buffer)
+            if !deliveryState.deliveredFirstBuffer {
+                deliveryState.deliveredFirstBuffer = true
+                onFirstBuffer()
+            }
+        }
+
+        try startAggregateDevice()
 
         switch scope {
         case .processes(let processObjectIDs):
@@ -93,6 +123,115 @@ final class SystemAudioTap {
         case .allSystemAudio:
             Log.audio.info("System audio tap started for all system audio")
         }
+    }
+
+    static func aggregateDescription(tapUUID: UUID) -> [String: Any] {
+        [
+            kAudioAggregateDeviceNameKey: "MeetingsHelper Tap",
+            kAudioAggregateDeviceUIDKey: UUID().uuidString,
+            kAudioAggregateDeviceIsPrivateKey: true,
+            kAudioAggregateDeviceIsStackedKey: false,
+            kAudioAggregateDeviceTapAutoStartKey: true,
+            kAudioAggregateDeviceTapListKey: [
+                [
+                    kAudioSubTapDriftCompensationKey: true,
+                    kAudioSubTapUIDKey: tapUUID.uuidString
+                ]
+            ]
+        ]
+    }
+
+    private func waitForAggregateInputStream() throws {
+        for attempt in 0..<Self.initializationAttempts {
+            if aggregateHasInputStream { return }
+            if attempt + 1 < Self.initializationAttempts {
+                Thread.sleep(forTimeInterval: Self.retryDelay)
+            }
+        }
+
+        throw CoreAudioError("Aggregate device did not expose the system audio stream.")
+    }
+
+    private var aggregateHasInputStream: Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamConfiguration,
+            mScope: kAudioDevicePropertyScopeInput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var dataSize: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(
+            aggregateDeviceID,
+            &address,
+            0,
+            nil,
+            &dataSize
+        ) == noErr, dataSize >= MemoryLayout<AudioBufferList>.size else { return false }
+
+        let storage = UnsafeMutableRawPointer.allocate(
+            byteCount: Int(dataSize),
+            alignment: MemoryLayout<AudioBufferList>.alignment
+        )
+        defer { storage.deallocate() }
+
+        let list = storage.bindMemory(to: AudioBufferList.self, capacity: 1)
+        guard AudioObjectGetPropertyData(
+            aggregateDeviceID,
+            &address,
+            0,
+            nil,
+            &dataSize,
+            list
+        ) == noErr else { return false }
+
+        return UnsafeMutableAudioBufferListPointer(list).contains { $0.mNumberChannels > 0 }
+    }
+
+    private func createIOProc(
+        onInputData: @escaping (UnsafePointer<AudioBufferList>) -> Void
+    ) throws {
+        var lastError: OSStatus = noErr
+
+        for attempt in 0..<Self.ioAttempts {
+            var candidate: AudioDeviceIOProcID?
+            let err = AudioDeviceCreateIOProcIDWithBlock(
+                &candidate,
+                aggregateDeviceID,
+                queue
+            ) { _, inputData, _, _, _ in
+                onInputData(inputData)
+            }
+
+            if err == noErr, let candidate {
+                ioProcID = candidate
+                return
+            }
+
+            lastError = err
+            if let candidate {
+                AudioDeviceDestroyIOProcID(aggregateDeviceID, candidate)
+            }
+            if attempt + 1 < Self.ioAttempts {
+                Thread.sleep(forTimeInterval: Self.retryDelay)
+            }
+        }
+
+        throw CoreAudioError("Cannot create IO proc: \(lastError)")
+    }
+
+    private func startAggregateDevice() throws {
+        var lastError: OSStatus = noErr
+
+        for attempt in 0..<Self.ioAttempts {
+            let err = AudioDeviceStart(aggregateDeviceID, ioProcID)
+            if err == noErr { return }
+
+            lastError = err
+            if attempt + 1 < Self.ioAttempts {
+                Thread.sleep(forTimeInterval: Self.retryDelay)
+            }
+        }
+
+        throw CoreAudioError("Cannot start aggregate device: \(lastError)")
     }
 
     func stop() {
@@ -110,5 +249,7 @@ final class SystemAudioTap {
             AudioHardwareDestroyProcessTap(tapID)
             tapID = .unknown
         }
+
+        format = nil
     }
 }

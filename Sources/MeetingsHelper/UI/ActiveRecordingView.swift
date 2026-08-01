@@ -54,6 +54,7 @@ struct ActiveRecordingView: View {
             HStack(spacing: 20) {
                 Label("Microphone: \(session.microphoneDeviceName)", systemImage: "mic")
                 Label("Audio source: \(session.systemAudioSourceName)", systemImage: "speaker.wave.2")
+                echoGate
             }
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -84,6 +85,28 @@ struct ActiveRecordingView: View {
             }
         }
         .padding(20)
+    }
+
+    /// Live state of the echo gate: whether it is comparing anything at all, how much speaker
+    /// leakage it has kept out of the transcript, and a highlight right after it fires.
+    private var echoGate: some View {
+        Label(echoGateText, systemImage: echoGateIcon)
+            .foregroundStyle(session.echoGateFiring ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
+            .help("Speaker playback that leaks into the microphone is recognized before recognition and left out of the transcript. With headphones there is nothing to filter. Switchable in Settings; the switch takes effect on the next recording.")
+    }
+
+    private var echoGateIcon: String {
+        guard session.echoGateEnabled else { return "waveform.slash" }
+        return session.echoGateFiltered > 0 ? "waveform.badge.minus" : "waveform"
+    }
+
+    private var echoGateText: String {
+        guard session.echoGateEnabled else { return "Echo gate: off" }
+        guard session.echoGateChecked > 0 else { return "Echo gate: standing by" }
+        guard session.echoGateFiltered > 0 else {
+            return "Echo gate: nothing to filter (\(session.echoGateChecked) checked)"
+        }
+        return "Echo gate: filtered \(session.echoGateFiltered) of \(session.echoGateChecked)"
     }
 
     @ViewBuilder

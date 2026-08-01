@@ -34,16 +34,27 @@ final class RecordingSession: ObservableObject {
     /// The tap is active, but no audible system audio has been detected yet. This can mean that
     /// the meeting is quiet or, when permission is denied, that Core Audio is delivering silence.
     @Published private(set) var systemSilent = false
+    /// Microphone utterances the echo gate was able to compare against the system track, and how
+    /// many of those it recognized as speaker leakage. Utterances it could not judge count as
+    /// neither: they pass through unchecked.
+    @Published private(set) var echoGateChecked = 0
+    @Published private(set) var echoGateFiltered = 0
+    /// True for a few seconds after each drop, so the indicator visibly reacts.
+    @Published private(set) var echoGateFiring = false
 
+    private var lastEchoDropAt: Date?
     private var systemPeak: Float = 0
     private var captureStartedAtUptime: TimeInterval = 0
 
     private let settings: AppSettings
     private let engine: TranscriptionEngine
-    private let acousticEchoCancellationEnabled: Bool
     private let transcriptDeduplicationEnabled: Bool
 
     private let microphone = MicrophoneCapture()
+    /// The system track's loudness, used to recognize speaker leakage in the microphone.
+    /// `nil` when the echo gate is off, which takes the whole check out of the path: nothing is
+    /// buffered and no utterance ever waits for the system track before reaching Whisper.
+    private let echoReference: EchoReference?
     private var systemTap: SystemAudioTap?
     private var micWriter: AudioTrackWriter?
     private var systemWriter: AudioTrackWriter?
@@ -58,8 +69,8 @@ final class RecordingSession: ObservableObject {
         self.detected = detected
         self.settings = settings
         self.engine = engine
-        self.acousticEchoCancellationEnabled = settings.acousticEchoCancellationEnabled
         self.transcriptDeduplicationEnabled = settings.transcriptDeduplicationEnabled
+        self.echoReference = settings.echoGateEnabled ? EchoReference() : nil
         self.title = detected.title
     }
 
@@ -141,6 +152,10 @@ final class RecordingSession: ObservableObject {
         lines.sorted { $0.offset < $1.offset }
     }
 
+    var echoGateEnabled: Bool {
+        echoReference != nil
+    }
+
     var systemAudioSourceName: String {
         detected.audioSourceDisplayName
     }
@@ -151,7 +166,7 @@ final class RecordingSession: ObservableObject {
         refreshMicrophoneDeviceName()
 
         do {
-            try microphone.start(voiceProcessing: acousticEchoCancellationEnabled) { [weak self] buffer in
+            try microphone.start { [weak self] buffer in
                 self?.micWriter?.append(buffer)
             }
 
@@ -208,9 +223,7 @@ final class RecordingSession: ObservableObject {
 
         let tap = SystemAudioTap(scope: scope)
         do {
-            try tap.start { [weak self] buffer in
-                self?.systemWriter?.append(buffer)
-            }
+            try tap.prepare()
 
             guard let format = tap.format else {
                 systemState = .unavailable("System audio format unavailable")
@@ -223,11 +236,23 @@ final class RecordingSession: ObservableObject {
                 label: "system",
                 timelineStartUptime: captureStartedAtUptime
             ) { [weak self] samples in
+                self?.echoReference?.append(samples)
                 self?.systemTranscriber?.feed(samples)
             }
 
+            try tap.start(
+                onFirstBuffer: { [weak self] in
+                    Task { @MainActor [weak self] in
+                        guard self?.systemState == .pending else { return }
+                        self?.systemState = .capturing
+                    }
+                },
+                onBuffer: { [weak self] buffer in
+                    self?.systemWriter?.append(buffer)
+                }
+            )
+
             systemTap = tap
-            systemState = .capturing
             return true
         } catch {
             Log.audio.error("System tap failed: \(error, privacy: .public)")
@@ -245,7 +270,15 @@ final class RecordingSession: ObservableObject {
 
         let language = settings.language.whisperCode
 
-        micTranscriber = SourceTranscriber(source: .me, engine: engine, language: language) { [weak self] line in
+        micTranscriber = SourceTranscriber(
+            source: .me,
+            engine: engine,
+            language: language,
+            echoReference: echoReference,
+            onEchoVerdict: { [weak self] verdict in
+                self?.receive(verdict)
+            }
+        ) { [weak self] line in
             self?.receive(line)
         }
         systemTranscriber = SourceTranscriber(source: .others, engine: engine, language: language) { [weak self] line in
@@ -276,6 +309,20 @@ final class RecordingSession: ObservableObject {
         }
     }
 
+    private func receive(_ verdict: EchoVerdict) {
+        switch verdict {
+        case .echo:
+            echoGateChecked += 1
+            echoGateFiltered += 1
+            lastEchoDropAt = Date()
+            echoGateFiring = true
+        case .speech:
+            echoGateChecked += 1
+        case .undecided:
+            break
+        }
+    }
+
     private func tick() {
         elapsed = Date().timeIntervalSince(startedAt)
         micLevel = micWriter?.level ?? 0
@@ -283,7 +330,17 @@ final class RecordingSession: ObservableObject {
         refreshMicrophoneDeviceName()
 
         systemPeak = max(systemPeak, systemLevel)
-        systemSilent = systemState == .capturing && elapsed > 20 && systemPeak < 0.0005
+        let systemIsAvailable: Bool
+        if case .unavailable = systemState {
+            systemIsAvailable = false
+        } else {
+            systemIsAvailable = true
+        }
+        systemSilent = systemIsAvailable && elapsed > 20 && systemPeak < 0.0005
+
+        if let lastEchoDropAt, Date().timeIntervalSince(lastEchoDropAt) > 3 {
+            echoGateFiring = false
+        }
     }
 
     private func refreshMicrophoneDeviceName() {

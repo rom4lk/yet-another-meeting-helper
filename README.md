@@ -65,9 +65,8 @@ the second signal is unavailable, and browser meeting detection turns off — Zo
 
 ## How recording works
 
-The microphone goes through the system voice-processing audio unit when acoustic echo
-cancellation is on, and through an `AVAudioEngine` tap when it is off; either way the capture
-survives input device switches mid-recording. Automatically detected meetings use a Core Audio
+The microphone goes through an `AVAudioEngine` tap that survives input device switches
+mid-recording. Automatically detected meetings use a Core Audio
 process tap (`AudioHardwareCreateProcessTap`, macOS 14.4+) scoped to the detected app, so unrelated
 audio stays out of those recordings. Manual recordings use a global system audio tap and include
 all system output.
@@ -85,15 +84,28 @@ Both tracks are normalized to 16 kHz mono and written **separately**:
 
 Separate tracks provide the initial attribution without diarization: microphone speech is labelled
 "Me", and the app's audio stream is labelled "Others". Speaker playback can leak into the
-microphone, so the cleanup options below refine that initial attribution.
+microphone, so the two stages below refine that initial attribution.
 
-Two independent transcript cleanup options are enabled by default and can be switched off in
-Settings. Acoustic echo cancellation captures the microphone through the macOS voice-processing
-audio unit — the same echo canceller FaceTime uses — so anything the Mac plays is subtracted from
-the microphone signal before it reaches the recording and the transcriber. Transcript deduplication
-compares near-simultaneous lines from the two tracks and keeps the cleaner system-audio copy when
-both contain the same speech. Either option can run alone, both can run together, or both can be
-disabled.
+The echo gate runs first, before recognition. Both tracks share a timeline, so each microphone
+utterance can be compared against the loudness envelope of the system track: leakage repeats the
+shape of what the speakers played, delayed by the room and much quieter. An utterance whose shape
+matches the playback **and** sits at least 18 dB below it is speaker leakage, not speech, and never
+reaches Whisper. Speech that overlaps playback fails the level test by a wide margin and is kept.
+The gate is on by default and needs no tuning — with headphones, or without a system track, it
+simply never fires. The recording window shows what it is doing live: how many utterances it has
+compared against the system track, how many it filtered out, and a highlight for a few seconds
+after each one. Thresholds and the measurements behind them are in
+[knowledge/echo-gate-calibration.md](knowledge/echo-gate-calibration.md).
+
+It can be switched off in Settings, which removes the check from the path entirely: no reference
+is buffered, and microphone utterances reach Whisper without waiting for the system track. That
+wait is the gate's only cost — up to half a second per utterance, and only when the system track
+has not caught up yet.
+
+Transcript deduplication is the second net, on by default and switchable in Settings: it compares
+near-simultaneous lines from the two tracks and keeps the cleaner system-audio copy when both
+contain the same speech. It catches leakage the gate let through, and the gate catches the case
+deduplication cannot see — the two tracks producing different words for the same speech.
 
 ## Transcript
 

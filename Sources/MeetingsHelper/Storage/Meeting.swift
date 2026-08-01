@@ -1,6 +1,7 @@
 import Foundation
 
 struct Meeting: Identifiable, Codable, Hashable {
+    static let minimumSavedDuration: TimeInterval = 10
     static let deletionConfirmationThreshold: TimeInterval = 5 * 60
 
     let id: UUID
@@ -44,6 +45,10 @@ struct Meeting: Identifiable, Codable, Hashable {
 
     var requiresDeletionConfirmation: Bool {
         duration > Self.deletionConfirmationThreshold
+    }
+
+    var shouldBeSaved: Bool {
+        duration >= Self.minimumSavedDuration
     }
 }
 

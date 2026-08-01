@@ -30,12 +30,12 @@ struct SettingsView: View {
                 ))
                 .disabled(!controller.settings.liveTranscriptEnabled)
 
-                Toggle("Acoustic echo cancellation", isOn: Binding(
-                    get: { controller.settings.acousticEchoCancellationEnabled },
-                    set: { controller.settings.acousticEchoCancellationEnabled = $0 }
+                Toggle("Filter out speaker leakage before recognition", isOn: Binding(
+                    get: { controller.settings.echoGateEnabled },
+                    set: { controller.settings.echoGateEnabled = $0 }
                 ))
 
-                Text("Captures the microphone through the macOS voice-processing audio unit — the same echo canceller FaceTime uses — so speaker playback does not leak into your track. Takes effect when the next recording starts.")
+                Text("Compares each microphone phrase against the system audio and skips the ones that are only playback leaking back in. A phrase waits up to half a second for the system track before it is recognized; turn this off to send the microphone straight to recognition. Takes effect when the next recording starts.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 

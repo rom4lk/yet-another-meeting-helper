@@ -7,25 +7,34 @@ import Foundation
 final class SourceTranscriber {
     private enum Constants {
         static let sampleRate: Double = AudioTrackWriter.sampleRate
-        static let frameSize = 1_600                    // 100 ms
+        static let frameSize = EchoReference.frameSize  // 100 ms
         static let preRollFrames = 3                    // 300 ms kept before speech onset
         static let silenceFramesToClose = 8             // 800 ms of silence ends an utterance
         static let minSpeechFrames = 4                  // shorter bursts are noise
         static let maxUtteranceFrames = 250             // hard cut at 25 s
         static let absoluteThreshold: Float = 0.006
         static let noiseMultiplier: Float = 3.5
+        /// How long an utterance waits for the system track to reach it before giving up.
+        static let referenceWaitLimit: TimeInterval = 0.5
+        static let referencePollInterval: UInt64 = 50_000_000
     }
 
     private let source: TranscriptSource
     private let transcribe: ([Float], String?) async -> String?
     private let onLine: (TranscriptLine) -> Void
     private let queue: DispatchQueue
+    private let echoReference: EchoReference?
+    /// Reports every echo-gate decision so the recording UI can show that the gate is working.
+    private let onEchoVerdict: ((EchoVerdict) -> Void)?
 
     private var language: String?
 
     private var inbox: [Float] = []
     private var preRoll: [[Float]] = []
     private var pending: [Float] = []
+    /// Per-frame loudness of `pending` and `preRoll`, kept for the echo gate.
+    private var preRollEnergies: [Float] = []
+    private var pendingEnergies: [Float] = []
     private var inUtterance = false
     private var speechFrames = 0
     private var silenceFrames = 0
@@ -39,6 +48,8 @@ final class SourceTranscriber {
         source: TranscriptSource,
         engine: TranscriptionEngine,
         language: String?,
+        echoReference: EchoReference? = nil,
+        onEchoVerdict: ((EchoVerdict) -> Void)? = nil,
         onLine: @escaping (TranscriptLine) -> Void
     ) {
         self.source = source
@@ -46,6 +57,8 @@ final class SourceTranscriber {
             await engine.transcribe(samples, language: language)
         }
         self.language = language
+        self.echoReference = echoReference
+        self.onEchoVerdict = onEchoVerdict
         self.onLine = onLine
         self.queue = DispatchQueue(label: "com.kovalev.MeetingsHelper.vad.\(source.rawValue)", qos: .utility)
     }
@@ -53,12 +66,16 @@ final class SourceTranscriber {
     init(
         source: TranscriptSource,
         language: String?,
+        echoReference: EchoReference? = nil,
+        onEchoVerdict: ((EchoVerdict) -> Void)? = nil,
         transcribe: @escaping ([Float], String?) async -> String?,
         onLine: @escaping (TranscriptLine) -> Void
     ) {
         self.source = source
         self.transcribe = transcribe
         self.language = language
+        self.echoReference = echoReference
+        self.onEchoVerdict = onEchoVerdict
         self.onLine = onLine
         self.queue = DispatchQueue(label: "com.kovalev.MeetingsHelper.vad.\(source.rawValue)", qos: .utility)
     }
@@ -86,7 +103,9 @@ final class SourceTranscriber {
                 guard waitForTranscription else {
                     self.inbox.removeAll()
                     self.pending.removeAll()
+                    self.pendingEnergies.removeAll()
                     self.preRoll.removeAll()
+                    self.preRollEnergies.removeAll()
                     self.tasks.forEach { $0.cancel() }
                     self.tasks.removeAll()
                     return continuation.resume()
@@ -123,6 +142,7 @@ final class SourceTranscriber {
 
         if inUtterance {
             pending.append(contentsOf: frame)
+            pendingEnergies.append(energy)
             if isSpeech {
                 speechFrames += 1
                 silenceFrames = 0
@@ -136,8 +156,10 @@ final class SourceTranscriber {
             }
         } else {
             preRoll.append(frame)
+            preRollEnergies.append(energy)
             if preRoll.count > Constants.preRollFrames {
                 preRoll.removeFirst()
+                preRollEnergies.removeFirst()
             }
 
             guard isSpeech else { return }
@@ -145,7 +167,9 @@ final class SourceTranscriber {
             inUtterance = true
             utteranceStartFrame = framesSeen - preRoll.count
             pending = preRoll.flatMap { $0 }
+            pendingEnergies = preRollEnergies
             preRoll.removeAll()
+            preRollEnergies.removeAll()
             speechFrames = 1
             silenceFrames = 0
         }
@@ -155,7 +179,9 @@ final class SourceTranscriber {
         defer {
             inUtterance = false
             pending.removeAll()
+            pendingEnergies.removeAll()
             preRoll.removeAll()
+            preRollEnergies.removeAll()
             speechFrames = 0
             silenceFrames = 0
         }
@@ -165,18 +191,58 @@ final class SourceTranscriber {
         guard speechFrames > 0, !pending.isEmpty else { return }
 
         let samples = pending
+        let energies = pendingEnergies
         let offset = Double(utteranceStartFrame) * Double(Constants.frameSize) / Constants.sampleRate
         let source = self.source
         let language = self.language
 
-        let task = Task { [transcribe, onLine] in
+        let task = Task { [transcribe, onLine, onEchoVerdict, echoReference] in
             guard !Task.isCancelled else { return }
+            if let echoReference {
+                let verdict = await Self.verdict(for: energies, at: offset, reference: echoReference)
+                await MainActor.run { onEchoVerdict?(verdict) }
+                if verdict == .echo {
+                    Log.audio.info("Dropped speaker leakage at \(offset, privacy: .public) s")
+                    return
+                }
+            }
             guard let text = await transcribe(samples, language) else { return }
             guard !Task.isCancelled else { return }
             let line = TranscriptLine(source: source, offset: offset, text: text)
             await MainActor.run { onLine(line) }
         }
         tasks.append(task)
+    }
+
+    /// Waits for the system track to reach the end of the utterance, then asks the gate.
+    ///
+    /// Everything short of a confident echo verdict passes through — no reference, a window that
+    /// scrolled out of the buffer, coverage that never arrives. Transcript deduplication is the
+    /// second net, and dropping real speech is the worse failure.
+    private static func verdict(
+        for energies: [Float],
+        at offset: TimeInterval,
+        reference: EchoReference
+    ) async -> EchoVerdict {
+        guard energies.count >= EchoGate.minimumFrames, reference.hasData else { return .undecided }
+
+        let lagSpan = Double(EchoGate.maximumLagFrames) * EchoReference.frameDuration
+        let start = offset - lagSpan
+        guard start >= 0 else { return .undecided }
+
+        let end = offset + Double(energies.count) * EchoReference.frameDuration
+        let deadline = Date().addingTimeInterval(Constants.referenceWaitLimit)
+        while reference.coveredUntil < end {
+            guard Date() < deadline else { return .undecided }
+            try? await Task.sleep(nanoseconds: Constants.referencePollInterval)
+        }
+
+        guard let window = reference.envelope(
+            startingAt: start,
+            frameCount: energies.count + EchoGate.maximumLagFrames
+        ) else { return .undecided }
+
+        return EchoGate.isEcho(microphone: energies, reference: window) ? .echo : .speech
     }
 
     private static func rms(_ samples: [Float]) -> Float {
