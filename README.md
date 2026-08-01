@@ -18,6 +18,26 @@ The app must always be code signed because macOS privacy permissions are tied to
 The project rejects builds made with `CODE_SIGNING_ALLOWED=NO`; use the configured automatic signing
 both from Xcode and from `xcodebuild`.
 
+### Build and run from the terminal
+
+From the repository root:
+
+```bash
+xcodegen generate &&
+xcodebuild \
+  -project MeetingsHelper.xcodeproj \
+  -scheme MeetingsHelper \
+  -configuration Debug \
+  -derivedDataPath .build \
+  build &&
+{ pkill -x MeetingsHelper 2>/dev/null || true; } &&
+open .build/Build/Products/Debug/MeetingsHelper.app
+```
+
+This regenerates the Xcode project, builds a signed Debug app, stops an already running instance,
+and launches the new build. If `xcodebuild` reports a provisioning error, add
+`-allowProvisioningUpdates` before `build`.
+
 ## How detection works
 
 Three layers, from precise to general.
