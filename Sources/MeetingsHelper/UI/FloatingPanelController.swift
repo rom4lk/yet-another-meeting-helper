@@ -39,6 +39,7 @@ final class FloatingPanelController {
         panel.becomesKeyOnlyIfNeeded = true
         panel.isMovableByWindowBackground = true
         panel.isReleasedWhenClosed = false
+        panel.contentMinSize = NSSize(width: 320, height: 180)
         panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
         panel.standardWindowButton(.zoomButton)?.isHidden = true
         panel.contentView = hostingView

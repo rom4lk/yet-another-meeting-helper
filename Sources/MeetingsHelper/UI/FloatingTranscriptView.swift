@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Content of the always-on-top panel.
@@ -21,6 +22,9 @@ struct FloatingTranscriptView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+
+            BottomResizeHandle()
+                .frame(maxWidth: .infinity, minHeight: 12, maxHeight: 12)
         }
         .background(.ultraThinMaterial)
         .frame(minWidth: 320, minHeight: 180)
@@ -108,3 +112,81 @@ struct FloatingTranscriptView: View {
             : String(format: "%02d:%02d", minutes, seconds)
     }
 }
+
+private struct BottomResizeHandle: NSViewRepresentable {
+    func makeNSView(context: Context) -> BottomResizeHandleView {
+        BottomResizeHandleView()
+    }
+
+    func updateNSView(_ nsView: BottomResizeHandleView, context: Context) {}
+}
+
+private final class BottomResizeHandleView: NSView {
+    private var initialWindowFrame: NSRect?
+    private var initialMouseY: CGFloat?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        toolTip = "Drag to resize the panel"
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .resizeUpDown)
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let window else { return }
+        initialWindowFrame = window.frame
+        initialMouseY = NSEvent.mouseLocation.y
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard
+            let window,
+            let initialWindowFrame,
+            let initialMouseY
+        else { return }
+
+        let mouseDelta = NSEvent.mouseLocation.y - initialMouseY
+        let proposedHeight = initialWindowFrame.height - mouseDelta
+        let maximumHeight = max(
+            window.minSize.height,
+            initialWindowFrame.maxY - (window.screen?.visibleFrame.minY ?? 0)
+        )
+        let newHeight = min(maximumHeight, max(window.minSize.height, proposedHeight))
+        let newFrame = NSRect(
+            x: initialWindowFrame.minX,
+            y: initialWindowFrame.maxY - newHeight,
+            width: initialWindowFrame.width,
+            height: newHeight
+        )
+        window.setFrame(newFrame, display: true)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        initialWindowFrame = nil
+        initialMouseY = nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        let indicatorRect = NSRect(
+            x: bounds.midX - 18,
+            y: bounds.midY - 1,
+            width: 36,
+            height: 2
+        )
+        NSColor.separatorColor.withAlphaComponent(0.7).setFill()
+        NSBezierPath(roundedRect: indicatorRect, xRadius: 1, yRadius: 1).fill()
+    }
+} 
