@@ -47,6 +47,8 @@ actor TranscriptionEngine {
     private var whisperKit: WhisperKit?
     private var loadedModel: String?
     private var loadTask: Task<Void, Error>?
+    private var loadingModel: String?
+    private var loadGeneration = 0
 
     /// Whisper reliably emits these when fed near-silence. Dropping them keeps the live
     /// transcript from filling up with phantom lines during quiet stretches.
@@ -109,11 +111,22 @@ actor TranscriptionEngine {
         // Wait out a load already in flight — it may be for another model, in which case the
         // check below still sends us down the loading path.
         if let loadTask {
-            try? await loadTask.value
+            let activeModel = loadingModel
+            do {
+                try await loadTask.value
+            } catch {
+                if activeModel == model { throw error }
+            }
+            // The task installs the model before it completes. Its initiating caller may not
+            // have resumed yet to publish `.ready`, so do not start the same load a second time.
+            if activeModel == model, whisperKit != nil { return }
         }
         if case .ready = state, whisperKit != nil, loadedModel == model { return }
 
         state = .loading
+        loadingModel = model
+        loadGeneration += 1
+        let generation = loadGeneration
         let task = Task<Void, Error> {
             let folder: URL
             if let downloadedFolder = Self.downloadedModelFolder(model) {
@@ -144,14 +157,18 @@ actor TranscriptionEngine {
 
         do {
             try await task.value
+            guard generation == loadGeneration else { return }
             state = .ready
             loadedModel = model
             loadTask = nil
+            loadingModel = nil
             Log.asr.notice("WhisperKit ready: \(model, privacy: .public)")
         } catch {
+            guard generation == loadGeneration else { throw error }
             state = .failed(error.localizedDescription)
             loadedModel = nil
             loadTask = nil
+            loadingModel = nil
             Log.asr.error("WhisperKit failed to load: \(error, privacy: .public)")
             throw error
         }

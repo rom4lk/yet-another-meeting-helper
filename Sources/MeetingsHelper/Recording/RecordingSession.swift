@@ -26,6 +26,7 @@ final class RecordingSession: ObservableObject {
     @Published private(set) var elapsed: TimeInterval = 0
     @Published private(set) var micLevel: Float = 0
     @Published private(set) var systemLevel: Float = 0
+    @Published private(set) var microphoneDeviceName = "Unknown microphone"
     @Published private(set) var micState: TrackState = .pending
     @Published private(set) var systemState: TrackState = .pending
     @Published private(set) var transcriptionState: TranscriptionState = .disabled
@@ -85,7 +86,7 @@ final class RecordingSession: ObservableObject {
         uiTimer = timer
     }
 
-    /// Stops every capture, waits for the transcription backlog and returns the saved meeting.
+    /// Stops every capture, finishes any ready transcription backlog and returns the saved meeting.
     func stop() async -> Meeting {
         uiTimer?.invalidate()
         uiTimer = nil
@@ -99,8 +100,9 @@ final class RecordingSession: ObservableObject {
         micWriter?.finish()
         systemWriter?.finish()
 
-        await micTranscriber?.finish()
-        await systemTranscriber?.finish()
+        let waitForTranscription = transcriptionState == .running
+        await micTranscriber?.finish(waitForTranscription: waitForTranscription)
+        await systemTranscriber?.finish(waitForTranscription: waitForTranscription)
         micTranscriber = nil
         systemTranscriber = nil
 
@@ -146,6 +148,8 @@ final class RecordingSession: ObservableObject {
     // MARK: - Sources
 
     private func startMicrophone() {
+        refreshMicrophoneDeviceName()
+
         do {
             try microphone.start(voiceProcessing: acousticEchoCancellationEnabled) { [weak self] buffer in
                 self?.micWriter?.append(buffer)
@@ -276,8 +280,17 @@ final class RecordingSession: ObservableObject {
         elapsed = Date().timeIntervalSince(startedAt)
         micLevel = micWriter?.level ?? 0
         systemLevel = systemWriter?.level ?? 0
+        refreshMicrophoneDeviceName()
 
         systemPeak = max(systemPeak, systemLevel)
         systemSilent = systemState == .capturing && elapsed > 20 && systemPeak < 0.0005
+    }
+
+    private func refreshMicrophoneDeviceName() {
+        let detectedName = try? AudioObjectID.readDefaultInputDevice().readDeviceName()
+        let name = detectedName.flatMap { $0.isEmpty ? nil : $0 } ?? "Unknown microphone"
+        guard name != microphoneDeviceName else { return }
+
+        microphoneDeviceName = name
     }
 }

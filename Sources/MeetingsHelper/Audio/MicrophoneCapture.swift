@@ -17,6 +17,50 @@ import Foundation
 /// stops itself whenever the input device changes (headphones connect, the default device
 /// switches) and never restarts on its own, so a configuration-change observer restarts it.
 final class MicrophoneCapture {
+    private struct DefaultOutputRoute {
+        let outputDevice: AudioDeviceID?
+        let systemOutputDevice: AudioDeviceID?
+
+        static func capture() -> DefaultOutputRoute {
+            DefaultOutputRoute(
+                outputDevice: try? AudioObjectID.readDefaultOutputDevice(),
+                systemOutputDevice: try? AudioObjectID.readDefaultSystemOutputDevice()
+            )
+        }
+
+        func restore() {
+            restore(
+                outputDevice,
+                current: AudioObjectID.readDefaultOutputDevice,
+                set: AudioObjectID.setDefaultOutputDevice,
+                label: "default output"
+            )
+            restore(
+                systemOutputDevice,
+                current: AudioObjectID.readDefaultSystemOutputDevice,
+                set: AudioObjectID.setDefaultSystemOutputDevice,
+                label: "system output"
+            )
+        }
+
+        private func restore(
+            _ deviceID: AudioDeviceID?,
+            current: () throws -> AudioDeviceID,
+            set: (AudioDeviceID) throws -> Void,
+            label: String
+        ) {
+            guard let deviceID, deviceID.isValid else { return }
+
+            do {
+                guard try current() != deviceID else { return }
+                try set(deviceID)
+                Log.audio.info("Restored the \(label, privacy: .public) device after voice processing stopped")
+            } catch {
+                Log.audio.error("Could not restore the \(label, privacy: .public) device: \(error, privacy: .public)")
+            }
+        }
+    }
+
     /// Everything the voice-processing render callbacks need. Kept alive by the capture
     /// object for as long as the unit exists.
     fileprivate final class VoiceProcessingContext {
@@ -33,6 +77,7 @@ final class MicrophoneCapture {
     private var engine: AVAudioEngine?
     private var configurationChangeObserver: (any NSObjectProtocol)?
     private var restartScheduled = false
+    private var restartGeneration = 0
 
     private var voiceProcessingUnit: AudioUnit?
     private var voiceProcessingContext: VoiceProcessingContext?
@@ -67,22 +112,21 @@ final class MicrophoneCapture {
     func stop() {
         guard isRunning else { return }
         isRunning = false
+        restartGeneration += 1
+        restartScheduled = false
 
-        if let observer = configurationChangeObserver {
-            NotificationCenter.default.removeObserver(observer)
-            configurationChangeObserver = nil
-        }
-        if let engine {
-            engine.inputNode.removeTap(onBus: 0)
-            engine.stop()
-            self.engine = nil
-        }
+        stopEngine()
         if let unit = voiceProcessingUnit {
+            // VoiceProcessingIO owns a duplex route. Releasing it can make macOS promote the
+            // built-in speaker to the default output, especially after using Bluetooth audio.
+            // Capture the route at stop time so user-initiated device changes are preserved.
+            let outputRoute = DefaultOutputRoute.capture()
             AudioOutputUnitStop(unit)
             AudioUnitUninitialize(unit)
             AudioComponentInstanceDispose(unit)
             voiceProcessingUnit = nil
             voiceProcessingContext = nil
+            outputRoute.restore()
         }
         onBuffer = nil
     }
@@ -202,8 +246,8 @@ final class MicrophoneCapture {
 
     private func startEngine(onBuffer: @escaping (AVAudioPCMBuffer) -> Void) throws {
         let engine = AVAudioEngine()
-        self.engine = engine
         try attachTap(to: engine, onBuffer: onBuffer)
+        self.engine = engine
 
         configurationChangeObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange,
@@ -222,12 +266,21 @@ final class MicrophoneCapture {
         }
         self.format = format
 
-        input.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
+        // Let Core Audio select the input node's current native format. Passing the format
+        // read immediately before a device switch can raise an Objective-C exception inside
+        // AVAudioIONodeImpl::SetOutputFormat, which Swift error handling cannot catch.
+        input.installTap(onBus: 0, bufferSize: 4096, format: nil) { buffer, _ in
             onBuffer(buffer)
         }
 
-        engine.prepare()
-        try engine.start()
+        do {
+            engine.prepare()
+            try engine.start()
+        } catch {
+            input.removeTap(onBus: 0)
+            engine.stop()
+            throw error
+        }
 
         Log.audio.info("Microphone capture started at \(format.sampleRate, privacy: .public) Hz (raw)")
     }
@@ -235,25 +288,38 @@ final class MicrophoneCapture {
     /// A device switch produces a burst of configuration-change notifications, so coalesce
     /// them into one restart.
     private func scheduleEngineRestart(after delay: TimeInterval) {
-        guard isRunning, engine != nil, !restartScheduled else { return }
+        guard isRunning, !restartScheduled else { return }
         restartScheduled = true
+        let generation = restartGeneration
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            self?.restartEngine()
+            guard let self, self.isRunning, self.restartGeneration == generation else { return }
+            self.restartEngine()
         }
     }
 
     private func restartEngine() {
         restartScheduled = false
-        guard isRunning, let engine, let onBuffer else { return }
+        guard isRunning, let onBuffer else { return }
 
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
+        stopEngine()
         do {
-            try attachTap(to: engine, onBuffer: onBuffer)
+            try startEngine(onBuffer: onBuffer)
             Log.audio.info("Microphone capture restarted after a device change")
         } catch {
             Log.audio.error("Microphone restart failed, retrying: \(error, privacy: .public)")
             scheduleEngineRestart(after: 1)
+        }
+    }
+
+    private func stopEngine() {
+        if let observer = configurationChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
+            configurationChangeObserver = nil
+        }
+        if let engine {
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+            self.engine = nil
         }
     }
 }

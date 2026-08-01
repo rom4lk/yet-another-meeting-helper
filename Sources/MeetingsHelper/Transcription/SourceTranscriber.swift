@@ -17,7 +17,7 @@ final class SourceTranscriber {
     }
 
     private let source: TranscriptSource
-    private let engine: TranscriptionEngine
+    private let transcribe: ([Float], String?) async -> String?
     private let onLine: (TranscriptLine) -> Void
     private let queue: DispatchQueue
 
@@ -42,7 +42,22 @@ final class SourceTranscriber {
         onLine: @escaping (TranscriptLine) -> Void
     ) {
         self.source = source
-        self.engine = engine
+        self.transcribe = { [engine] samples, language in
+            await engine.transcribe(samples, language: language)
+        }
+        self.language = language
+        self.onLine = onLine
+        self.queue = DispatchQueue(label: "com.kovalev.MeetingsHelper.vad.\(source.rawValue)", qos: .utility)
+    }
+
+    init(
+        source: TranscriptSource,
+        language: String?,
+        transcribe: @escaping ([Float], String?) async -> String?,
+        onLine: @escaping (TranscriptLine) -> Void
+    ) {
+        self.source = source
+        self.transcribe = transcribe
         self.language = language
         self.onLine = onLine
         self.queue = DispatchQueue(label: "com.kovalev.MeetingsHelper.vad.\(source.rawValue)", qos: .utility)
@@ -60,12 +75,23 @@ final class SourceTranscriber {
         }
     }
 
-    /// Flushes whatever is still buffered and waits for every in-flight transcription, so the
-    /// saved transcript is complete rather than truncated at the moment Stop was pressed.
-    func finish() async {
+    /// Flushes whatever is still buffered and, when recognition is ready, waits for every
+    /// in-flight transcription so the saved transcript is complete. If the model is still
+    /// loading, pending work is discarded so stopping a recording does not wait for the model.
+    func finish(waitForTranscription: Bool) async {
         await withCheckedContinuation { continuation in
             queue.async { [weak self] in
                 guard let self else { return continuation.resume() }
+
+                guard waitForTranscription else {
+                    self.inbox.removeAll()
+                    self.pending.removeAll()
+                    self.preRoll.removeAll()
+                    self.tasks.forEach { $0.cancel() }
+                    self.tasks.removeAll()
+                    return continuation.resume()
+                }
+
                 if !self.inbox.isEmpty {
                     self.pending.append(contentsOf: self.inbox)
                     self.inbox.removeAll()
@@ -143,8 +169,10 @@ final class SourceTranscriber {
         let source = self.source
         let language = self.language
 
-        let task = Task { [engine, onLine] in
-            guard let text = await engine.transcribe(samples, language: language) else { return }
+        let task = Task { [transcribe, onLine] in
+            guard !Task.isCancelled else { return }
+            guard let text = await transcribe(samples, language) else { return }
+            guard !Task.isCancelled else { return }
             let line = TranscriptLine(source: source, offset: offset, text: text)
             await MainActor.run { onLine(line) }
         }
