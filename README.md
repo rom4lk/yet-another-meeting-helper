@@ -65,15 +65,17 @@ Separate tracks give speaker attribution without diarization: everything from th
 
 ## Transcript
 
-WhisperKit (CoreML); the model is picked in Settings, `large-v3-turbo` by default. Whisper is not
+WhisperKit (CoreML); the model is picked in Settings, `large-v3-turbo` by default. Model files live
+under `~/Library/Application Support/MeetingsHelper/Models` and are prepared in the background when
+the app starts. Whisper is not
 streaming, so the stream is cut into lines by an energy VAD with an adaptive threshold: a line closes
 after 0.8 s of silence, or is forced closed at 25 s. Each track is transcribed by its own instance,
 and both go through a shared actor that holds the model.
 
 Audio starts arriving before the model has finished loading, so the first chunks are not thrown away
-— they wait for it in a queue. But the model weighs over a gigabyte, and waiting for it in the middle
-of a meeting is pointless, so Settings has a "Download" button with progress to pull the files in
-advance.
+— they wait for it in a queue. Settings has a "Download" button with progress to pull the files in
+advance. On later launches the app uses the local files without contacting the model repository and
+prepares Core ML before a meeting begins.
 
 ## Permissions
 

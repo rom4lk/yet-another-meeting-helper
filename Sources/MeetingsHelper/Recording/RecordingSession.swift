@@ -12,6 +12,7 @@ final class RecordingSession: ObservableObject {
 
     enum TranscriptionState: Equatable {
         case disabled
+        case downloading(Double?)
         case preparing
         case running
         case failed(String)
@@ -216,7 +217,6 @@ final class RecordingSession: ObservableObject {
             return
         }
 
-        transcriptionState = .preparing
         let language = settings.language.whisperCode
 
         micTranscriber = SourceTranscriber(source: .me, engine: engine, language: language) { [weak self] line in
@@ -227,9 +227,14 @@ final class RecordingSession: ObservableObject {
         }
 
         let model = settings.model
+        transcriptionState = TranscriptionEngine.isDownloaded(model) ? .preparing : .downloading(nil)
         Task { [engine] in
             do {
-                try await engine.prepare(model: model)
+                try await engine.prepare(model: model) { [weak self] fraction in
+                    Task { @MainActor in
+                        self?.transcriptionState = fraction < 1 ? .downloading(fraction) : .preparing
+                    }
+                }
                 transcriptionState = .running
             } catch {
                 transcriptionState = .failed(error.localizedDescription)

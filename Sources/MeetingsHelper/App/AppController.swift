@@ -23,12 +23,13 @@ final class AppController: ObservableObject {
         case missing
         /// Fraction downloaded, `nil` until the first callback arrives.
         case downloading(Double?)
+        case preparing
         case installed
         case failed(String)
     }
 
     private let engine = TranscriptionEngine()
-    private var downloadingModel: String?
+    private var preparingModel: String?
     private let panelController = FloatingPanelController()
     private var hotkeys: [GlobalHotkey] = []
     private var sessionObserver: AnyCancellable?
@@ -58,6 +59,8 @@ final class AppController: ObservableObject {
 
         registerHotkeys()
         refreshPermissions()
+        refreshModelState()
+        preloadInstalledModel()
     }
 
     func refreshPermissions() {
@@ -101,9 +104,9 @@ final class AppController: ObservableObject {
     /// Pulls the model down (and into memory) ahead of time, so the first meeting does not spend
     /// its opening minutes downloading.
     func downloadModel() {
-        guard downloadingModel == nil else { return }
+        guard preparingModel == nil else { return }
         let model = settings.model
-        downloadingModel = model
+        preparingModel = model
         modelState = .downloading(nil)
 
         Task {
@@ -111,17 +114,21 @@ final class AppController: ObservableObject {
                 try await engine.prepare(model: model) { fraction in
                     Task { @MainActor in
                         guard self.settings.model == model else { return }
-                        self.modelState = .downloading(fraction)
+                        self.modelState = fraction < 1 ? .downloading(fraction) : .preparing
                     }
                 }
-                downloadingModel = nil
+                preparingModel = nil
                 refreshModelState()
+                if settings.model != model {
+                    preloadInstalledModel()
+                }
             } catch {
-                downloadingModel = nil
+                preparingModel = nil
                 if settings.model == model {
                     modelState = .failed(error.localizedDescription)
                 } else {
                     refreshModelState()
+                    preloadInstalledModel()
                 }
             }
         }
@@ -129,13 +136,50 @@ final class AppController: ObservableObject {
 
     /// Reads the state off disk, so a model downloaded in an earlier launch is recognised.
     func refreshModelState() {
-        guard downloadingModel != settings.model else { return }
+        guard preparingModel != settings.model else { return }
         modelState = TranscriptionEngine.isDownloaded(settings.model) ? .installed : .missing
     }
 
     func selectModel(_ model: String) {
         settings.model = model
         refreshModelState()
+        preloadInstalledModel()
+    }
+
+    func setLiveTranscriptEnabled(_ enabled: Bool) {
+        settings.liveTranscriptEnabled = enabled
+        if enabled {
+            preloadInstalledModel()
+        }
+    }
+
+    private func preloadInstalledModel() {
+        guard settings.liveTranscriptEnabled else { return }
+        guard preparingModel == nil else { return }
+
+        let model = settings.model
+        guard TranscriptionEngine.isDownloaded(model) else { return }
+
+        preparingModel = model
+        modelState = .preparing
+        Task {
+            do {
+                try await engine.prepare(model: model)
+                preparingModel = nil
+                refreshModelState()
+                if settings.model != model {
+                    preloadInstalledModel()
+                }
+            } catch {
+                preparingModel = nil
+                if settings.model == model {
+                    modelState = .failed(error.localizedDescription)
+                } else {
+                    refreshModelState()
+                    preloadInstalledModel()
+                }
+            }
+        }
     }
 
     // MARK: - Recording

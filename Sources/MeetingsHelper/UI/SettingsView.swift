@@ -21,7 +21,7 @@ struct SettingsView: View {
             Section("Transcript") {
                 Toggle("Live transcript", isOn: Binding(
                     get: { controller.settings.liveTranscriptEnabled },
-                    set: { controller.settings.liveTranscriptEnabled = $0 }
+                    set: { controller.setLiveTranscriptEnabled($0) }
                 ))
 
                 Toggle("Show the floating panel on start", isOn: Binding(
@@ -50,7 +50,7 @@ struct SettingsView: View {
 
                 LabeledContent("Model files") { modelControl }
 
-                Text("Otherwise the model downloads itself during the first recording — and the opening minutes of the meeting stay untranscribed.")
+                Text("Downloaded models are prepared in the background when the app starts, so speech recognition is ready before a meeting begins.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -93,15 +93,20 @@ struct SettingsView: View {
             Button("Download") { controller.downloadModel() }
         case .downloading(let progress):
             HStack(spacing: 8) {
-                if let progress, progress < 1 {
+                if let progress {
                     ProgressView(value: progress).frame(width: 120)
                     Text(progress.formatted(.percent.precision(.fractionLength(0))))
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                 } else {
                     ProgressView().controlSize(.small)
-                    Text("Loading into memory…").foregroundStyle(.secondary)
+                    Text("Starting download…").foregroundStyle(.secondary)
                 }
+            }
+        case .preparing:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Preparing…").foregroundStyle(.secondary)
             }
         case .installed:
             Label("Downloaded", systemImage: "checkmark.circle.fill")

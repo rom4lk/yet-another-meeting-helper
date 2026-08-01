@@ -79,9 +79,17 @@ struct ActiveRecordingView: View {
     private var status: some View {
         VStack(spacing: 8) {
             switch session.transcriptionState {
+            case .downloading(let progress):
+                if let progress {
+                    ProgressView(value: progress).frame(width: 180)
+                    Text("Downloading the speech recognition model — \(progress.formatted(.percent.precision(.fractionLength(0))))")
+                } else {
+                    ProgressView().controlSize(.small)
+                    Text("Starting the speech recognition model download…")
+                }
             case .preparing:
                 ProgressView().controlSize(.small)
-                Text("Loading the speech recognition model. On the first run it gets downloaded — this may take a few minutes.")
+                Text("Preparing speech recognition…")
             case .running:
                 Image(systemName: "waveform").font(.largeTitle).foregroundStyle(.tertiary)
                 Text("Listening. Lines will show up here a couple of seconds after the first phrase.")

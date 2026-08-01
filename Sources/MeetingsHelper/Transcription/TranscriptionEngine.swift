@@ -13,6 +13,36 @@ actor TranscriptionEngine {
 
     static let repo = "argmaxinc/whisperkit-coreml"
 
+    private static let downloadBase: URL = {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appending(path: "MeetingsHelper", directoryHint: .isDirectory)
+            .appending(path: "Models", directoryHint: .isDirectory)
+    }()
+
+    private static let migrateLegacyCache: Void = {
+        let fileManager = FileManager.default
+        let destination = HubApiWrapper(downloadBase: downloadBase)
+            .localRepoLocation(HubApiWrapper.Repo(id: repo))
+        guard !fileManager.fileExists(atPath: destination.path) else { return }
+
+        let legacyBase = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appending(path: "huggingface", directoryHint: .isDirectory)
+        let source = HubApiWrapper(downloadBase: legacyBase)
+            .localRepoLocation(HubApiWrapper.Repo(id: repo))
+        guard fileManager.fileExists(atPath: source.path) else { return }
+
+        do {
+            try fileManager.createDirectory(
+                at: destination.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try fileManager.moveItem(at: source, to: destination)
+            Log.asr.notice("Moved the WhisperKit model cache to Application Support")
+        } catch {
+            Log.asr.error("Could not move the legacy WhisperKit cache: \(error, privacy: .public)")
+        }
+    }()
+
     private(set) var state: State = .idle
     private var whisperKit: WhisperKit?
     private var loadedModel: String?
@@ -41,10 +71,29 @@ actor TranscriptionEngine {
     /// no-op. Checks the three CoreML bundles `loadModels` requires, because an interrupted
     /// download leaves the folder in place with only part of them.
     static func isDownloaded(_ model: String) -> Bool {
-        let folder = HubApiWrapper.shared
+        downloadedModelFolder(model) != nil
+    }
+
+    private static func downloadedModelFolder(_ model: String) -> URL? {
+        _ = migrateLegacyCache
+
+        let currentFolder = HubApiWrapper(downloadBase: downloadBase)
             .localRepoLocation(HubApiWrapper.Repo(id: repo))
             .appending(path: model)
+        if containsRequiredModels(currentFolder) {
+            return currentFolder
+        }
 
+        // Keep the existing download usable if macOS prevented moving it out of Documents.
+        let legacyBase = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appending(path: "huggingface", directoryHint: .isDirectory)
+        let legacyFolder = HubApiWrapper(downloadBase: legacyBase)
+            .localRepoLocation(HubApiWrapper.Repo(id: repo))
+            .appending(path: model)
+        return containsRequiredModels(legacyFolder) ? legacyFolder : nil
+    }
+
+    private static func containsRequiredModels(_ folder: URL) -> Bool {
         return ["MelSpectrogram", "AudioEncoder", "TextDecoder"].allSatisfy { name in
             ["mlmodelc", "mlpackage"].contains { ext in
                 FileManager.default.fileExists(atPath: folder.appending(path: "\(name).\(ext)").path)
@@ -66,10 +115,19 @@ actor TranscriptionEngine {
 
         state = .loading
         let task = Task<Void, Error> {
-            let folder = try await WhisperKit.download(variant: model, from: Self.repo) { progress in
-                onProgress?(progress.fractionCompleted)
+            let folder: URL
+            if let downloadedFolder = Self.downloadedModelFolder(model) {
+                folder = downloadedFolder
+            } else {
+                folder = try await WhisperKit.download(
+                    variant: model,
+                    downloadBase: Self.downloadBase,
+                    from: Self.repo
+                ) { progress in
+                    onProgress?(progress.fractionCompleted)
+                }
+                onProgress?(1)
             }
-            onProgress?(1)
             let config = WhisperKitConfig(
                 model: model,
                 modelFolder: folder.path,

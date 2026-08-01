@@ -72,9 +72,16 @@ struct FloatingTranscriptView: View {
     private func placeholder(for session: RecordingSession) -> some View {
         VStack(spacing: 6) {
             switch session.transcriptionState {
+            case .downloading(let progress):
+                ProgressView(value: progress ?? 0)
+                    .controlSize(.small)
+                    .frame(width: 100)
+                Text(progress.map {
+                    "Downloading model — \($0.formatted(.percent.precision(.fractionLength(0))))"
+                } ?? "Starting model download…")
             case .preparing:
                 ProgressView().controlSize(.small)
-                Text("Loading the speech recognition model…")
+                Text("Preparing speech recognition…")
             case .running:
                 Text("Listening…")
             case .disabled:
