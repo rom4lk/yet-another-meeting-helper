@@ -68,12 +68,13 @@ struct RootView: View {
                 }
             }
             .foregroundStyle(.secondary)
-        case .preparing:
+        case .preparing(let stage):
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
-                Text("Preparing model…")
+                Text(stage.statusText)
             }
             .foregroundStyle(.secondary)
+            .help(stage.detailText)
         case .failed(let message):
             Label("Model unavailable", systemImage: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)

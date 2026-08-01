@@ -2,6 +2,29 @@ import Foundation
 import FluidAudio
 import WhisperKit
 
+enum ModelPreparationStage: Equatable, Sendable {
+    case optimizing
+    case loading
+
+    var statusText: String {
+        switch self {
+        case .optimizing:
+            "Optimizing for Apple Neural Engine…"
+        case .loading:
+            "Loading model into memory…"
+        }
+    }
+
+    var detailText: String {
+        switch self {
+        case .optimizing:
+            "The first optimization can take 10 minutes or more. Later launches are usually much faster."
+        case .loading:
+            "This usually takes a few seconds."
+        }
+    }
+}
+
 /// Owns the selected speech recognition pipeline. Both tracks funnel their chunks through this
 /// actor, and an explicit gate keeps the model serial even while the actor is reentrant at
 /// suspension points.
@@ -52,6 +75,8 @@ actor TranscriptionEngine {
     private var loadTask: Task<Void, Error>?
     private var loadingModel: String?
     private var loadGeneration = 0
+    private var preparationStage: ModelPreparationStage?
+    private var preparationObservers: [UUID: (model: String, callback: @Sendable (ModelPreparationStage) -> Void)] = [:]
     private var transcriptionInProgress = false
     private var transcriptionWaiters: [CheckedContinuation<Void, Never>] = []
 
@@ -119,7 +144,20 @@ actor TranscriptionEngine {
     /// - Parameter onProgress: fraction of the download when the backend exposes progress, `1`
     ///   once the bytes are in and the model is being loaded into memory. Never called for an
     ///   already cached model.
-    func prepare(model: String, onProgress: (@Sendable (Double) -> Void)? = nil) async throws {
+    func prepare(
+        model: String,
+        onProgress: (@Sendable (Double) -> Void)? = nil,
+        onPreparationStage: (@Sendable (ModelPreparationStage) -> Void)? = nil
+    ) async throws {
+        let observerID = UUID()
+        if let onPreparationStage {
+            preparationObservers[observerID] = (model, onPreparationStage)
+            if loadingModel == model, let preparationStage {
+                onPreparationStage(preparationStage)
+            }
+        }
+        defer { preparationObservers[observerID] = nil }
+
         // Wait out a load already in flight — it may be for another model, in which case the
         // check below still sends us down the loading path.
         if let loadTask {
@@ -146,6 +184,7 @@ actor TranscriptionEngine {
                 let models = try await AsrModels.downloadAndLoad(version: .v3) { progress in
                     onProgress?(progress.fractionCompleted)
                 }
+                publishPreparationStage(.loading, for: model)
                 let manager = AsrManager(config: .default)
                 try await manager.loadModels(models)
                 self.parakeet = manager
@@ -169,11 +208,15 @@ actor TranscriptionEngine {
                     modelFolder: folder.path,
                     verbose: false,
                     logLevel: .error,
-                    prewarm: true,
-                    load: true,
+                    prewarm: false,
+                    load: false,
                     download: false
                 )
                 let kit = try await WhisperKit(config)
+                publishPreparationStage(.optimizing, for: model)
+                try await kit.prewarmModels()
+                publishPreparationStage(.loading, for: model)
+                try await kit.loadModels()
                 self.whisperKit = kit
                 self.parakeet = nil
             }
@@ -187,6 +230,7 @@ actor TranscriptionEngine {
             loadedModel = model
             loadTask = nil
             loadingModel = nil
+            preparationStage = nil
             Log.asr.notice("Transcription model ready: \(model, privacy: .public)")
         } catch {
             guard generation == loadGeneration else { throw error }
@@ -194,8 +238,21 @@ actor TranscriptionEngine {
             loadedModel = nil
             loadTask = nil
             loadingModel = nil
+            preparationStage = nil
             Log.asr.error("Transcription model failed to load: \(error, privacy: .public)")
             throw error
+        }
+    }
+
+    static func initialPreparationStage(for model: String) -> ModelPreparationStage {
+        model == AppSettings.parakeetModelID ? .loading : .optimizing
+    }
+
+    private func publishPreparationStage(_ stage: ModelPreparationStage, for model: String) {
+        guard loadingModel == model else { return }
+        preparationStage = stage
+        for observer in preparationObservers.values where observer.model == model {
+            observer.callback(stage)
         }
     }
 

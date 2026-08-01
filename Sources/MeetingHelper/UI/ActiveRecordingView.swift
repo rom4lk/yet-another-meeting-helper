@@ -121,9 +121,12 @@ struct ActiveRecordingView: View {
                     ProgressView().controlSize(.small)
                     Text("Starting the speech recognition model download…")
                 }
-            case .preparing:
+            case .preparing(let stage):
                 ProgressView().controlSize(.small)
-                Text("Preparing speech recognition…")
+                Text(stage.statusText)
+                Text(stage.detailText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             case .running:
                 Image(systemName: "waveform").font(.largeTitle).foregroundStyle(.tertiary)
                 Text("Listening. Lines will show up here a couple of seconds after the first phrase.")

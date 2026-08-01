@@ -13,7 +13,7 @@ final class RecordingSession: ObservableObject {
     enum TranscriptionState: Equatable {
         case disabled
         case downloading(Double?)
-        case preparing
+        case preparing(ModelPreparationStage)
         case running
         case failed(String)
     }
@@ -296,14 +296,26 @@ final class RecordingSession: ObservableObject {
         }
 
         let model = settings.model
-        transcriptionState = TranscriptionEngine.isDownloaded(model) ? .preparing : .downloading(nil)
+        transcriptionState = TranscriptionEngine.isDownloaded(model)
+            ? .preparing(TranscriptionEngine.initialPreparationStage(for: model))
+            : .downloading(nil)
         Task { [engine] in
             do {
-                try await engine.prepare(model: model) { [weak self] fraction in
-                    Task { @MainActor in
-                        self?.transcriptionState = fraction < 1 ? .downloading(fraction) : .preparing
+                try await engine.prepare(
+                    model: model,
+                    onProgress: { [weak self] fraction in
+                        Task { @MainActor in
+                            self?.transcriptionState = fraction < 1
+                                ? .downloading(fraction)
+                                : .preparing(TranscriptionEngine.initialPreparationStage(for: model))
+                        }
+                    },
+                    onPreparationStage: { [weak self] stage in
+                        Task { @MainActor in
+                            self?.transcriptionState = .preparing(stage)
+                        }
                     }
-                }
+                )
                 transcriptionState = .running
             } catch {
                 transcriptionState = .failed(error.localizedDescription)

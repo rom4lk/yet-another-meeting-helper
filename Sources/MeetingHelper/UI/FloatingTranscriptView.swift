@@ -99,9 +99,10 @@ struct FloatingTranscriptView: View {
                 Text(progress.map {
                     "Downloading model — \($0.formatted(.percent.precision(.fractionLength(0))))"
                 } ?? "Starting model download…")
-            case .preparing:
+            case .preparing(let stage):
                 ProgressView().controlSize(.small)
-                Text("Preparing speech recognition…")
+                Text(stage.statusText)
+                    .help(stage.detailText)
             case .running:
                 Text("Listening…")
             case .disabled:

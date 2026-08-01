@@ -25,7 +25,7 @@ final class AppController: ObservableObject {
         case missing
         /// Fraction downloaded, `nil` until the first callback arrives.
         case downloading(Double?)
-        case preparing
+        case preparing(ModelPreparationStage)
         case installed
         case failed(String)
     }
@@ -156,12 +156,23 @@ final class AppController: ObservableObject {
 
         Task {
             do {
-                try await engine.prepare(model: model) { fraction in
-                    Task { @MainActor in
-                        guard self.settings.model == model else { return }
-                        self.modelState = fraction < 1 ? .downloading(fraction) : .preparing
+                try await engine.prepare(
+                    model: model,
+                    onProgress: { fraction in
+                        Task { @MainActor in
+                            guard self.settings.model == model else { return }
+                            self.modelState = fraction < 1
+                                ? .downloading(fraction)
+                                : .preparing(TranscriptionEngine.initialPreparationStage(for: model))
+                        }
+                    },
+                    onPreparationStage: { stage in
+                        Task { @MainActor in
+                            guard self.settings.model == model else { return }
+                            self.modelState = .preparing(stage)
+                        }
                     }
-                }
+                )
                 preparingModel = nil
                 refreshModelState()
                 if settings.model != model {
@@ -250,10 +261,15 @@ final class AppController: ObservableObject {
         guard TranscriptionEngine.isDownloaded(model) else { return }
 
         preparingModel = model
-        modelState = .preparing
+        modelState = .preparing(TranscriptionEngine.initialPreparationStage(for: model))
         Task {
             do {
-                try await engine.prepare(model: model)
+                try await engine.prepare(model: model, onPreparationStage: { stage in
+                    Task { @MainActor in
+                        guard self.settings.model == model else { return }
+                        self.modelState = .preparing(stage)
+                    }
+                })
                 preparingModel = nil
                 refreshModelState()
                 if settings.model != model {

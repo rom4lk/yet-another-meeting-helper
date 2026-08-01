@@ -131,7 +131,11 @@ While a recording is active, utterances that arrive before the model is ready wa
 model load instead of being dropped. If the recording stops before the model becomes ready, that
 pending transcription work is discarded so stopping does not wait for the download. The model can
 be downloaded in advance from Settings. On later launches, the app loads the local files and
-prepares Core ML without contacting the model repository.
+prepares Core ML without contacting the model repository. The interface distinguishes device
+optimization from loading the optimized model into memory. Core ML does not expose progress within
+device optimization; the first optimization can take 10 minutes or more, while the subsequent load
+usually takes a few seconds. macOS caches the optimized model, so later launches are normally much
+faster unless the system cache has been evicted.
 
 ## Permission handling
 

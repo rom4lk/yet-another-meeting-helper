@@ -229,10 +229,16 @@ struct SettingsView: View {
                     Text("Starting download…").foregroundStyle(.secondary)
                 }
             }
-        case .preparing:
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("Preparing…").foregroundStyle(.secondary)
+        case .preparing(let stage):
+            VStack(alignment: .trailing, spacing: 3) {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(stage.statusText).foregroundStyle(.secondary)
+                }
+                Text(stage.detailText)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.trailing)
             }
         case .installed:
             Label("Downloaded", systemImage: "checkmark.circle.fill")
