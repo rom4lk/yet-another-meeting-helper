@@ -49,6 +49,8 @@ final class RecordingSession: ObservableObject {
     private let settings: AppSettings
     private let engine: TranscriptionEngine
     private let transcriptDeduplicationEnabled: Bool
+    private let realtimeTranscriptEnabled: Bool
+    private var previewLineIDs: Set<UUID> = []
 
     private let microphone = MicrophoneCapture()
     /// The system track's loudness, used to recognize speaker leakage in the microphone.
@@ -70,6 +72,7 @@ final class RecordingSession: ObservableObject {
         self.settings = settings
         self.engine = engine
         self.transcriptDeduplicationEnabled = settings.transcriptDeduplicationEnabled
+        self.realtimeTranscriptEnabled = settings.realtimeTranscriptEnabled
         self.echoReference = settings.echoGateEnabled ? EchoReference() : nil
         self.title = detected.title
     }
@@ -114,6 +117,7 @@ final class RecordingSession: ObservableObject {
         let waitForTranscription = transcriptionState == .running
         await micTranscriber?.finish(waitForTranscription: waitForTranscription)
         await systemTranscriber?.finish(waitForTranscription: waitForTranscription)
+        discardAllPreviews()
         micTranscriber = nil
         systemTranscriber = nil
 
@@ -274,15 +278,21 @@ final class RecordingSession: ObservableObject {
             source: .me,
             engine: engine,
             language: language,
+            realtimeUpdatesEnabled: realtimeTranscriptEnabled,
             echoReference: echoReference,
             onEchoVerdict: { [weak self] verdict in
                 self?.receive(verdict)
             }
-        ) { [weak self] line in
-            self?.receive(line)
+        ) { [weak self] update in
+            self?.receive(update)
         }
-        systemTranscriber = SourceTranscriber(source: .others, engine: engine, language: language) { [weak self] line in
-            self?.receive(line)
+        systemTranscriber = SourceTranscriber(
+            source: .others,
+            engine: engine,
+            language: language,
+            realtimeUpdatesEnabled: realtimeTranscriptEnabled
+        ) { [weak self] update in
+            self?.receive(update)
         }
 
         let model = settings.model
@@ -301,12 +311,32 @@ final class RecordingSession: ObservableObject {
         }
     }
 
-    private func receive(_ line: TranscriptLine) {
-        if transcriptDeduplicationEnabled {
-            TranscriptDeduplicator.insert(line, into: &lines)
-        } else {
-            lines.append(line)
+    private func receive(_ update: SourceTranscriptionUpdate) {
+        switch update {
+        case .preview(let line):
+            previewLineIDs.insert(line.id)
+            if let index = lines.firstIndex(where: { $0.id == line.id }) {
+                lines[index] = line
+            } else {
+                lines.append(line)
+            }
+        case .final(let line):
+            previewLineIDs.remove(line.id)
+            lines.removeAll { $0.id == line.id }
+            if transcriptDeduplicationEnabled {
+                TranscriptDeduplicator.insert(line, into: &lines)
+            } else {
+                lines.append(line)
+            }
+        case .removePreview(let id):
+            previewLineIDs.remove(id)
+            lines.removeAll { $0.id == id }
         }
+    }
+
+    private func discardAllPreviews() {
+        lines.removeAll { previewLineIDs.contains($0.id) }
+        previewLineIDs.removeAll()
     }
 
     private func receive(_ verdict: EchoVerdict) {

@@ -116,6 +116,12 @@ streaming, so the stream is cut into lines by an energy VAD with an adaptive thr
 after 0.8 s of silence, or is forced closed at 25 s. Each track is transcribed by its own instance,
 and both go through a shared actor that holds the model.
 
+Settings can enable real-time transcript updates. While this mode is active, the current utterance
+is recognized every two seconds using an expanding, overlapping audio snapshot. Each result updates
+one preview line in place; after a pause, the regular full-utterance result replaces that preview and
+only the final line is saved. Real-time updates are off by default because they use more processing
+power.
+
 Audio starts arriving before the model has finished loading, so the first chunks are not thrown away
 — they wait for it in a queue. Settings has a "Download" button with progress to pull the files in
 advance. On later launches the app uses the local files without contacting the model repository and

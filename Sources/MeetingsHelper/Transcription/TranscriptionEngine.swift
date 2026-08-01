@@ -1,8 +1,8 @@
 import Foundation
 import WhisperKit
 
-/// Owns the WhisperKit pipeline. An actor because the model must not be entered concurrently —
-/// both tracks funnel their chunks through here and get serialised for free.
+/// Owns the WhisperKit pipeline. Both tracks funnel their chunks through this actor, and an
+/// explicit gate keeps the model serial even while the actor is reentrant at suspension points.
 actor TranscriptionEngine {
     enum State: Equatable {
         case idle
@@ -49,6 +49,8 @@ actor TranscriptionEngine {
     private var loadTask: Task<Void, Error>?
     private var loadingModel: String?
     private var loadGeneration = 0
+    private var transcriptionInProgress = false
+    private var transcriptionWaiters: [CheckedContinuation<Void, Never>] = []
 
     /// Whisper reliably emits these when fed near-silence. Dropping them keeps the live
     /// transcript from filling up with phantom lines during quiet stretches.
@@ -176,6 +178,10 @@ actor TranscriptionEngine {
 
     /// - Parameter language: ISO code, or `nil` to let Whisper detect it per chunk.
     func transcribe(_ samples: [Float], language: String?) async -> String? {
+        await acquireTranscriptionSlot()
+        defer { releaseTranscriptionSlot() }
+        guard !Task.isCancelled else { return nil }
+
         // Audio starts flowing before the model finishes loading; hold the chunk instead of
         // dropping it, so the first minute of a meeting is not lost.
         if whisperKit == nil, let loadTask {
@@ -210,5 +216,24 @@ actor TranscriptionEngine {
         }
 
         return text
+    }
+
+    private func acquireTranscriptionSlot() async {
+        if !transcriptionInProgress {
+            transcriptionInProgress = true
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            transcriptionWaiters.append(continuation)
+        }
+    }
+
+    private func releaseTranscriptionSlot() {
+        guard !transcriptionWaiters.isEmpty else {
+            transcriptionInProgress = false
+            return
+        }
+        transcriptionWaiters.removeFirst().resume()
     }
 }

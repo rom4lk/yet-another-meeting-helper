@@ -5,13 +5,13 @@ final class MeetingDeletionTests: XCTestCase {
     func testMeetingShorterThanTenSecondsIsNotSaved() {
         let meeting = Meeting(title: "Short meeting", kind: .manual, duration: 9.999)
 
-        XCTAssertFalse(meeting.shouldBeSaved)
+        XCTAssertFalse(meeting.shouldBeSaved(minimumDuration: 10))
     }
 
     func testMeetingAtTenSecondsIsSaved() {
         let meeting = Meeting(title: "Boundary meeting", kind: .manual, duration: 10)
 
-        XCTAssertTrue(meeting.shouldBeSaved)
+        XCTAssertTrue(meeting.shouldBeSaved(minimumDuration: 10))
     }
 
     func testMeetingAtFiveMinutesDoesNotRequireConfirmation() {

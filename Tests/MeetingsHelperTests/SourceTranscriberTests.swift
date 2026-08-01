@@ -2,6 +2,125 @@ import XCTest
 @testable import MeetingsHelper
 
 final class SourceTranscriberTests: XCTestCase {
+    private final class RecognitionCalls: @unchecked Sendable {
+        private let lock = NSLock()
+        private var sampleCounts: [Int] = []
+
+        func response(for samples: [Float]) -> String {
+            lock.lock()
+            sampleCounts.append(samples.count)
+            let call = sampleCounts.count
+            lock.unlock()
+            return call < 3 ? "Preview \(call)" : "Final result"
+        }
+
+        var counts: [Int] {
+            lock.lock()
+            defer { lock.unlock() }
+            return sampleCounts
+        }
+    }
+
+    private final class TranscriptUpdates: @unchecked Sendable {
+        private let lock = NSLock()
+        private var previewLines: [TranscriptLine] = []
+        private var finalLines: [TranscriptLine] = []
+
+        func append(_ update: SourceTranscriptionUpdate) {
+            lock.lock()
+            defer { lock.unlock() }
+            switch update {
+            case .preview(let line):
+                previewLines.append(line)
+            case .final(let line):
+                finalLines.append(line)
+            case .removePreview:
+                break
+            }
+        }
+
+        var previews: [TranscriptLine] {
+            lock.lock()
+            defer { lock.unlock() }
+            return previewLines
+        }
+
+        var finals: [TranscriptLine] {
+            lock.lock()
+            defer { lock.unlock() }
+            return finalLines
+        }
+    }
+
+    func testRealtimeModeUpdatesOnePreviewAndReplacesItWithTheFinalLine() async {
+        let firstPreview = expectation(description: "First preview")
+        let secondPreview = expectation(description: "Second preview")
+        let final = expectation(description: "Final result")
+        let calls = RecognitionCalls()
+        let updates = TranscriptUpdates()
+
+        let transcriber = SourceTranscriber(
+            source: .others,
+            language: "en",
+            realtimeUpdatesEnabled: true,
+            transcribe: { samples, _ in calls.response(for: samples) },
+            onUpdate: { update in
+                updates.append(update)
+                switch update {
+                case .preview:
+                    if updates.previews.count == 1 {
+                        firstPreview.fulfill()
+                    } else {
+                        secondPreview.fulfill()
+                    }
+                case .final:
+                    final.fulfill()
+                case .removePreview:
+                    break
+                }
+            }
+        )
+
+        let twoSecondsOfSpeech = [Float](repeating: 0.1, count: 20 * EchoReference.frameSize)
+        transcriber.feed(twoSecondsOfSpeech)
+        await fulfillment(of: [firstPreview], timeout: 1)
+
+        transcriber.feed(twoSecondsOfSpeech)
+        await fulfillment(of: [secondPreview], timeout: 1)
+
+        transcriber.feed([Float](repeating: 0, count: 8 * EchoReference.frameSize))
+        await transcriber.finish(waitForTranscription: true)
+        await fulfillment(of: [final], timeout: 1)
+
+        let previews = updates.previews
+        let finalLines = updates.finals
+        XCTAssertEqual(previews.map(\.text), ["Preview 1", "Preview 2"])
+        XCTAssertEqual(finalLines.map(\.text), ["Final result"])
+        XCTAssertEqual(Set((previews + finalLines).map(\.id)).count, 1)
+        XCTAssertEqual(calls.counts, [20, 40, 48].map { $0 * EchoReference.frameSize })
+    }
+
+    func testDisabledRealtimeModeOnlyTranscribesTheFinalUtterance() async {
+        let recognized = expectation(description: "Final result")
+        let calls = RecognitionCalls()
+        let speech = [Float](repeating: 0.1, count: 40 * EchoReference.frameSize)
+        let silence = [Float](repeating: 0, count: 8 * EchoReference.frameSize)
+
+        let transcriber = SourceTranscriber(
+            source: .others,
+            language: "en",
+            realtimeUpdatesEnabled: false,
+            transcribe: { samples, _ in calls.response(for: samples) },
+            onLine: { _ in recognized.fulfill() }
+        )
+
+        transcriber.feed(speech + silence)
+        await transcriber.finish(waitForTranscription: true)
+        await fulfillment(of: [recognized], timeout: 1)
+
+        XCTAssertEqual(calls.counts, [48 * EchoReference.frameSize])
+    }
+
     func testFinishDoesNotWaitForTranscriptionWhenRecognitionIsNotReady() async {
         let transcriptionStarted = expectation(description: "Transcription started")
         let transcriber = SourceTranscriber(

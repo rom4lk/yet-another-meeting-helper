@@ -262,7 +262,7 @@ final class AppController: ObservableObject {
         Task {
             let meeting = await session.stop()
             let lines = session.sortedLines
-            if meeting.shouldBeSaved {
+            if meeting.shouldBeSaved(minimumDuration: TimeInterval(settings.minimumRecordingDuration)) {
                 store.save(meeting)
                 store.saveTranscript(lines, for: meeting.id)
             } else {

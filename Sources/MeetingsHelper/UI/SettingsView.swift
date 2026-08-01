@@ -1,6 +1,14 @@
 import SwiftUI
 
 struct SettingsView: View {
+    private static let recordingDurationLabels = [
+        5: "5 seconds",
+        10: "10 seconds",
+        30: "30 seconds",
+        60: "1 minute",
+        300: "5 minutes"
+    ]
+
     @EnvironmentObject private var controller: AppController
 
     var body: some View {
@@ -18,11 +26,38 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Recording") {
+                Picker("Minimum duration", selection: Binding(
+                    get: { controller.settings.minimumRecordingDuration },
+                    set: { controller.settings.minimumRecordingDuration = $0 }
+                )) {
+                    ForEach(AppSettings.minimumRecordingDurations, id: \.self) { duration in
+                        Text(Self.recordingDurationLabels[duration] ?? "\(duration) seconds")
+                            .tag(duration)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                Text("Recordings shorter than this are deleted without saving audio or a transcript.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Transcript") {
                 Toggle("Live transcript", isOn: Binding(
                     get: { controller.settings.liveTranscriptEnabled },
                     set: { controller.setLiveTranscriptEnabled($0) }
                 ))
+
+                Toggle("Update transcript while people are speaking", isOn: Binding(
+                    get: { controller.settings.realtimeTranscriptEnabled },
+                    set: { controller.settings.realtimeTranscriptEnabled = $0 }
+                ))
+                .disabled(!controller.settings.liveTranscriptEnabled)
+
+                Text("Recognizes the active phrase every two seconds and replaces the preview with a final result after a pause. Uses more processing power and takes effect when the next recording starts.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
                 Toggle("Show the floating panel on start", isOn: Binding(
                     get: { controller.settings.showPanelOnStart },

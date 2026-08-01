@@ -24,8 +24,8 @@ struct TranscriptView: View {
                 .padding([.top, .horizontal], compact ? 10 : 16)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .onChange(of: lines.last?.id) { _, id in
-                guard autoScroll, id != nil else { return }
+            .onChange(of: lines.last) { _, line in
+                guard autoScroll, line != nil else { return }
                 withAnimation(.easeOut(duration: 0.2)) {
                     proxy.scrollTo(bottomAnchorID, anchor: .bottom)
                 }
