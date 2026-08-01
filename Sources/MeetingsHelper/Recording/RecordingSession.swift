@@ -131,6 +131,10 @@ final class RecordingSession: ObservableObject {
         lines.sorted { $0.offset < $1.offset }
     }
 
+    var systemAudioSourceName: String {
+        detected.audioSourceDisplayName
+    }
+
     // MARK: - Sources
 
     private func startMicrophone() {
@@ -178,10 +182,18 @@ final class RecordingSession: ObservableObject {
     }
 
     private func attachSystemTap() -> Bool {
-        let objectIDs = AudioProcessLookup.matches(prefixes: detected.audioPrefixes).map(\.objectID)
-        guard !objectIDs.isEmpty else { return false }
+        let scope: SystemAudioTap.Scope
+        if detected.capturesAllSystemAudio {
+            let ownBundleID = Bundle.main.bundleIdentifier ?? "com.kovalev.MeetingsHelper"
+            let ownObjectIDs = AudioProcessLookup.matches(prefixes: [ownBundleID]).map(\.objectID)
+            scope = .allSystemAudio(excluding: ownObjectIDs)
+        } else {
+            let objectIDs = AudioProcessLookup.matches(prefixes: detected.audioPrefixes).map(\.objectID)
+            guard !objectIDs.isEmpty else { return false }
+            scope = .processes(objectIDs)
+        }
 
-        let tap = SystemAudioTap(processObjectIDs: objectIDs)
+        let tap = SystemAudioTap(scope: scope)
         do {
             try tap.start { [weak self] buffer in
                 self?.systemWriter?.append(buffer)

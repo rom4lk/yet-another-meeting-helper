@@ -65,9 +65,10 @@ the second signal is unavailable, and browser meeting detection turns off — Zo
 
 ## How recording works
 
-The microphone goes through `AVAudioEngine`, system audio through a Core Audio process tap
-(`AudioHardwareCreateProcessTap`, macOS 14.4+) bound to the processes of the specific meeting app.
-That is why music from another app never ends up in the recording.
+The microphone goes through `AVAudioEngine`. Automatically detected meetings use a Core Audio
+process tap (`AudioHardwareCreateProcessTap`, macOS 14.4+) scoped to the detected app, so unrelated
+audio stays out of those recordings. Manual recordings use a global system audio tap and include
+all system output.
 
 Both tracks are normalized to 16 kHz mono and written **separately**:
 

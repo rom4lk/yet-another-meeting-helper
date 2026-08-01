@@ -22,6 +22,18 @@ struct DetectedMeeting: Equatable {
     /// Bundle identifier prefixes whose audio output belongs to this meeting.
     let audioPrefixes: [String]
     let detectedAt: Date
+
+    var capturesAllSystemAudio: Bool {
+        kind == .manual
+    }
+
+    var audioSourceDisplayName: String {
+        guard !capturesAllSystemAudio else { return "All system audio" }
+
+        let apps = [MeetingApp.zoom] + MeetingApp.browsers
+        return apps.first { $0.audioBundleIDPrefixes == audioPrefixes }?.displayName
+            ?? kind.displayName
+    }
 }
 
 /// Watches the system for meetings that have actually *started*.
@@ -86,7 +98,7 @@ final class MeetingDetector: ObservableObject {
         begin(DetectedMeeting(
             kind: .manual,
             title: title,
-            audioPrefixes: MeetingApp.manualFallbackPrefixes,
+            audioPrefixes: [],
             detectedAt: Date()
         ))
     }

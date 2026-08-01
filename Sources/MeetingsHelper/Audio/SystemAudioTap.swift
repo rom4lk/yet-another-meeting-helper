@@ -2,11 +2,14 @@ import AudioToolbox
 import AVFoundation
 import Foundation
 
-/// Captures the audio output of a specific set of processes using a Core Audio process tap
-/// (macOS 14.4+). Scoping the tap to the meeting app's processes keeps unrelated audio —
-/// music, notifications, another browser tab — out of the recording.
+/// Captures system output using a Core Audio process tap (macOS 14.4+).
 final class SystemAudioTap {
-    private let processObjectIDs: [AudioObjectID]
+    enum Scope {
+        case processes([AudioObjectID])
+        case allSystemAudio(excluding: [AudioObjectID])
+    }
+
+    private let scope: Scope
     private let queue = DispatchQueue(label: "com.kovalev.MeetingsHelper.systemTap", qos: .userInitiated)
 
     private var tapID = AudioObjectID.unknown
@@ -15,8 +18,8 @@ final class SystemAudioTap {
 
     private(set) var format: AVAudioFormat?
 
-    init(processObjectIDs: [AudioObjectID]) {
-        self.processObjectIDs = processObjectIDs
+    init(scope: Scope) {
+        self.scope = scope
     }
 
     deinit { stop() }
@@ -24,11 +27,16 @@ final class SystemAudioTap {
     /// Starts delivering buffers on a private serial queue. The buffer is only valid for the
     /// duration of the callback — copy anything you need to keep.
     func start(onBuffer: @escaping (AVAudioPCMBuffer) -> Void) throws {
-        guard !processObjectIDs.isEmpty else {
-            throw CoreAudioError("No audio processes to tap.")
+        let description: CATapDescription
+        switch scope {
+        case .processes(let processObjectIDs):
+            guard !processObjectIDs.isEmpty else {
+                throw CoreAudioError("No audio processes to tap.")
+            }
+            description = CATapDescription(stereoMixdownOfProcesses: processObjectIDs)
+        case .allSystemAudio(let excludedObjectIDs):
+            description = CATapDescription(stereoGlobalTapButExcludeProcesses: excludedObjectIDs)
         }
-
-        let description = CATapDescription(stereoMixdownOfProcesses: processObjectIDs)
         description.uuid = UUID()
         description.muteBehavior = .unmuted
         description.isPrivate = true
@@ -79,7 +87,12 @@ final class SystemAudioTap {
         err = AudioDeviceStart(aggregateDeviceID, ioProcID)
         guard err == noErr else { throw CoreAudioError("Cannot start aggregate device: \(err)") }
 
-        Log.audio.info("System audio tap started on \(self.processObjectIDs.count, privacy: .public) process(es)")
+        switch scope {
+        case .processes(let processObjectIDs):
+            Log.audio.info("System audio tap started on \(processObjectIDs.count, privacy: .public) process(es)")
+        case .allSystemAudio:
+            Log.audio.info("System audio tap started for all system audio")
+        }
     }
 
     func stop() {

@@ -38,9 +38,18 @@ struct FloatingTranscriptView: View {
                     .frame(width: 8, height: 8)
             }
 
-            Text(controller.session?.title ?? "Meetings Helper")
-                .font(.system(size: 12, weight: .semibold))
-                .lineLimit(1)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(controller.session?.title ?? "Meetings Helper")
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+
+                if let session = controller.session {
+                    Text("Audio source: \(session.systemAudioSourceName)")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
 
             Spacer()
 

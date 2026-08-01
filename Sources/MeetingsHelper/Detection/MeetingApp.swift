@@ -54,12 +54,6 @@ struct MeetingApp: Identifiable, Hashable {
 
     static let browsers: [MeetingApp] = [.chrome, .arc, .edge, .safari]
 
-    /// The app to tap when the user starts a recording by hand: whatever is in front, unless it
-    /// is us. Falls back to a global tap of every known meeting app.
-    static let manualFallbackPrefixes: [String] = ["us.zoom", "com.google.Chrome", "company.thebrowser",
-                                                   "com.microsoft.edgemac", "com.apple.Safari", "com.apple.WebKit",
-                                                   "com.microsoft.teams2", "com.tinyspeck.slackmacgap"]
-
     var runningApplications: [NSRunningApplication] {
         NSWorkspace.shared.runningApplications.filter { application in
             guard let bundleID = application.bundleIdentifier else { return false }

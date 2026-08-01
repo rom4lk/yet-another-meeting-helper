@@ -51,6 +51,10 @@ struct ActiveRecordingView: View {
                 LevelMeter(title: "System audio", level: session.systemLevel, isActive: session.systemState == .capturing)
             }
 
+            Label("Audio source: \(session.systemAudioSourceName)", systemImage: "speaker.wave.2")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             if session.systemSilent {
                 HStack {
                     if controller.systemAudioPermission == .denied {
