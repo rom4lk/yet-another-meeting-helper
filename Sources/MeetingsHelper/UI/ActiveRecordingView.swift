@@ -53,9 +53,13 @@ struct ActiveRecordingView: View {
 
             if session.systemSilent {
                 HStack {
-                    Label("No system audio is coming in — the permission is most likely missing.", systemImage: "exclamationmark.triangle.fill")
-                    Button("Open Settings") { SystemAudioPermission.openSystemSettings() }
-                        .buttonStyle(.link)
+                    if controller.systemAudioPermission == .denied {
+                        Label("System audio access is disabled.", systemImage: "exclamationmark.triangle.fill")
+                        Button("Open Settings") { SystemAudioPermission.openSystemSettings() }
+                            .buttonStyle(.link)
+                    } else {
+                        Label("No system audio detected yet. This is normal while the meeting is quiet.", systemImage: "waveform.slash")
+                    }
                 }
                 .font(.caption)
                 .foregroundStyle(.orange)

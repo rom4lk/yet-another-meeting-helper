@@ -30,8 +30,8 @@ final class RecordingSession: ObservableObject {
     @Published private(set) var systemState: TrackState = .pending
     @Published private(set) var transcriptionState: TranscriptionState = .disabled
     @Published private(set) var lines: [TranscriptLine] = []
-    /// The tap reports success but nothing ever arrives — almost always a missing system audio
-    /// permission, which Core Audio signals by handing out silence rather than an error.
+    /// The tap is active, but no audible system audio has been detected yet. This can mean that
+    /// the meeting is quiet or, when permission is denied, that Core Audio is delivering silence.
     @Published private(set) var systemSilent = false
 
     private var systemPeak: Float = 0
