@@ -14,3 +14,7 @@ xcuserdata/
 
 # macOS
 .DS_Store
+
+
+# Symlink for meetings records
+Meeting-records

@@ -32,9 +32,18 @@ final class AppController: ObservableObject {
     private let panelController = FloatingPanelController()
     private var hotkeys: [GlobalHotkey] = []
     private var sessionObserver: AnyCancellable?
+    private var storeObserver: AnyCancellable?
 
     var isRecording: Bool { session != nil }
     var isPanelVisible: Bool { panelController.isVisible }
+
+    init() {
+        // MeetingStore is a nested ObservableObject, so its changes have to be forwarded
+        // for views that observe only the controller.
+        storeObserver = store.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+    }
 
     // MARK: - Bootstrap
 
