@@ -1,6 +1,8 @@
 import Foundation
 
 struct Meeting: Identifiable, Codable, Hashable {
+    static let deletionConfirmationThreshold: TimeInterval = 5 * 60
+
     let id: UUID
     var title: String
     var kind: DetectedMeeting.Kind
@@ -38,6 +40,10 @@ struct Meeting: Identifiable, Codable, Hashable {
         return hours > 0
             ? String(format: "%d:%02d:%02d", hours, minutes, seconds)
             : String(format: "%02d:%02d", minutes, seconds)
+    }
+
+    var requiresDeletionConfirmation: Bool {
+        duration > Self.deletionConfirmationThreshold
     }
 }
 

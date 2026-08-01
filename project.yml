@@ -74,3 +74,13 @@ targets:
         NSMicrophoneUsageDescription: "Records your voice during the meeting."
         NSAudioCaptureUsageDescription: "Records the other participants' voices from the meeting app's audio stream."
         NSCalendarsFullAccessUsageDescription: "Fills in the meeting title from your calendar."
+  MeetingsHelperTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests/MeetingsHelperTests
+    dependencies:
+      - target: MeetingsHelper
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES

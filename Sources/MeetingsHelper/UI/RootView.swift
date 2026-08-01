@@ -8,6 +8,7 @@ enum SidebarItem: Hashable {
 struct RootView: View {
     @EnvironmentObject private var controller: AppController
     @State private var selection: SidebarItem?
+    @State private var meetingPendingDeletion: Meeting?
 
     var body: some View {
         NavigationSplitView {
@@ -109,13 +110,40 @@ struct RootView: View {
                     .tag(SidebarItem.meeting(meeting.id))
                     .contextMenu {
                         Button("Delete", role: .destructive) {
-                            controller.store.delete(meeting)
+                            deleteMeeting(meeting)
                         }
                     }
                 }
             }
 
             PermissionsBanner()
+        }
+        .confirmationDialog(
+            "Delete long meeting?",
+            isPresented: Binding(
+                get: { meetingPendingDeletion != nil },
+                set: { if !$0 { meetingPendingDeletion = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: meetingPendingDeletion
+        ) { meeting in
+            Button("Delete Meeting", role: .destructive) {
+                controller.store.delete(meeting)
+                meetingPendingDeletion = nil
+            }
+            Button("Cancel", role: .cancel) {
+                meetingPendingDeletion = nil
+            }
+        } message: { _ in
+            Text("This meeting is longer than 5 minutes. Deleting it permanently removes its recording and transcript.")
+        }
+    }
+
+    private func deleteMeeting(_ meeting: Meeting) {
+        if meeting.requiresDeletionConfirmation {
+            meetingPendingDeletion = meeting
+        } else {
+            controller.store.delete(meeting)
         }
     }
 

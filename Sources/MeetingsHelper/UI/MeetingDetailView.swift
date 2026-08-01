@@ -9,6 +9,7 @@ struct MeetingDetailView: View {
 
     @State private var title: String = ""
     @State private var lines: [TranscriptLine] = []
+    @State private var isShowingDeleteConfirmation = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -29,6 +30,18 @@ struct MeetingDetailView: View {
         .onAppear(perform: load)
         .onChange(of: meeting.id) { _, _ in load() }
         .onDisappear { player.stop() }
+        .confirmationDialog(
+            "Delete long meeting?",
+            isPresented: $isShowingDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Meeting", role: .destructive) {
+                controller.store.delete(meeting)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This meeting is longer than 5 minutes. Deleting it permanently removes its recording and transcript.")
+        }
     }
 
     private var header: some View {
@@ -49,7 +62,7 @@ struct MeetingDetailView: View {
                         .disabled(lines.isEmpty)
                     Divider()
                     Button("Delete meeting", role: .destructive) {
-                        controller.store.delete(meeting)
+                        deleteMeeting()
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -115,6 +128,14 @@ struct MeetingDetailView: View {
         var updated = meeting
         updated.title = title
         controller.store.save(updated)
+    }
+
+    private func deleteMeeting() {
+        if meeting.requiresDeletionConfirmation {
+            isShowingDeleteConfirmation = true
+        } else {
+            controller.store.delete(meeting)
+        }
     }
 
     private func copyTranscript() {
