@@ -23,7 +23,7 @@ Measurements are hardware-specific — do not generalize them without re-running
 
 | | |
 |---|---|
-| Machine | Mac mini, macOS 24.6.0 (Darwin) |
+| Machine | Mac mini, macOS 15.7.1 (Darwin 24.6.0) |
 | Default input | C922 Pro Stream Webcam (USB), device 51, 48 kHz stereo |
 | Default output | Mac mini built-in speakers, device 93 |
 | Voice processor | VoiceProcessorV10, tuning `AID36/VPVX/database.v1.0.xml` |

@@ -18,3 +18,10 @@ that is user data, not interface text.
 
 Note that `project.yml` is the source of truth for the usage descriptions: `xcodegen generate`
 rewrites `Resources/Info.plist` from it, so an edit made only in the plist gets overwritten.
+
+## Documentation
+
+Update the documentation whenever a change affects application behavior, architecture, setup,
+permissions, supported meeting apps, configuration, or known limitations. Keep `README.md` concise
+and user-focused, and put implementation details in the relevant file under `docs/` or `knowledge/`.
+Documentation updates must be part of the same change as the code they describe.

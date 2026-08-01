@@ -180,8 +180,8 @@ final class EchoGateFixtureTests: XCTestCase {
   portable — it touches no device-specific Core Audio behaviour, unlike VPIO — but how far echo
   sits below the source depends on speaker volume, distance and the room. Re-measure before
   trusting the numbers on very different hardware.
-- **Reverberation smears the envelope**, which lowers correlation. A gulped room would push echo
-  towards the 0.80 boundary and the gate would quietly stop firing. It fails open, not shut.
+- **Reverberation smears the envelope**, which lowers correlation. A highly reverberant room can
+  push echo towards the 0.80 boundary and make the gate stop firing. It fails open, not shut.
 - **Headphones need no special handling.** There is no leakage, so the level test never passes and
   the gate never fires.
 - Recordings made before this change went in were captured through VPIO with its makeup gain and
