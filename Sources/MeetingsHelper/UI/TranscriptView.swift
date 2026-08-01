@@ -6,6 +6,8 @@ struct TranscriptView: View {
     var compact = false
     var autoScroll = false
 
+    private let bottomAnchorID = "transcript-bottom"
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -14,14 +16,18 @@ struct TranscriptView: View {
                         TranscriptRow(line: line, compact: compact)
                             .id(line.id)
                     }
+
+                    Color.clear
+                        .frame(height: compact ? 10 : 16)
+                        .id(bottomAnchorID)
                 }
-                .padding(compact ? 10 : 16)
+                .padding([.top, .horizontal], compact ? 10 : 16)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .onChange(of: lines.last?.id) { _, id in
-                guard autoScroll, let id else { return }
+                guard autoScroll, id != nil else { return }
                 withAnimation(.easeOut(duration: 0.2)) {
-                    proxy.scrollTo(id, anchor: .bottom)
+                    proxy.scrollTo(bottomAnchorID, anchor: .bottom)
                 }
             }
         }

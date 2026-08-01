@@ -30,6 +30,8 @@ final class FloatingPanelController {
         panel.title = "Transcript"
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]

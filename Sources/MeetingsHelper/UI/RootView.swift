@@ -16,7 +16,9 @@ struct RootView: View {
             detail
         }
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItemGroup(placement: .primaryAction) {
+                modelStatus
+
                 Button {
                     controller.toggleRecording()
                 } label: {
@@ -39,6 +41,37 @@ struct RootView: View {
             Button("OK", role: .cancel) { controller.errorMessage = nil }
         } message: {
             Text(controller.errorMessage ?? "")
+        }
+    }
+
+    @ViewBuilder
+    private var modelStatus: some View {
+        switch controller.modelState {
+        case .downloading(let progress):
+            HStack(spacing: 6) {
+                if let progress {
+                    ProgressView(value: progress)
+                        .frame(width: 72)
+                    Text("Downloading model \(progress.formatted(.percent.precision(.fractionLength(0))))")
+                        .monospacedDigit()
+                } else {
+                    ProgressView().controlSize(.small)
+                    Text("Starting model download…")
+                }
+            }
+            .foregroundStyle(.secondary)
+        case .preparing:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Preparing model…")
+            }
+            .foregroundStyle(.secondary)
+        case .failed(let message):
+            Label("Model unavailable", systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .help(message)
+        case .missing, .installed:
+            EmptyView()
         }
     }
 
