@@ -133,7 +133,7 @@ final class RecordingSession: ObservableObject {
 
         let id = meetingID
         await Task.detached(priority: .utility) {
-            Mixdown.create(
+            _ = Mixdown.create(
                 micURL: hasMic ? MeetingLibrary.micTrackURL(for: id) : nil,
                 systemURL: hasSystem ? MeetingLibrary.systemTrackURL(for: id) : nil,
                 outputURL: MeetingLibrary.mixdownURL(for: id)
@@ -145,7 +145,6 @@ final class RecordingSession: ObservableObject {
             title: title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? detected.title : title,
             kind: detected.kind,
             startedAt: startedAt,
-            endedAt: Date(),
             duration: duration,
             hasMicTrack: hasMic,
             hasSystemTrack: hasSystem
@@ -166,26 +165,28 @@ final class RecordingSession: ObservableObject {
 
     // MARK: - Sources
 
+    // Capture callbacks run on Core Audio's threads, so they capture the writer and the
+    // transcriber directly instead of reaching back through `self`. Those objects are internally
+    // synchronised; this session's stored properties are main-actor state and must not be touched
+    // from an audio thread.
     private func startMicrophone() {
         refreshMicrophoneDeviceName()
 
         do {
-            try microphone.start { [weak self] buffer in
-                self?.micWriter?.append(buffer)
-            }
-
-            guard let format = microphone.format else {
-                micState = .unavailable("Microphone format unavailable")
-                return
-            }
-
-            micWriter = try AudioTrackWriter(
+            let format = try microphone.prepare()
+            let transcriber = micTranscriber
+            let writer = try AudioTrackWriter(
                 url: MeetingLibrary.micTrackURL(for: meetingID),
                 sourceFormat: format,
                 label: "mic",
                 timelineStartUptime: captureStartedAtUptime
-            ) { [weak self] samples in
-                self?.micTranscriber?.feed(samples)
+            ) { samples in
+                transcriber?.feed(samples)
+            }
+            micWriter = writer
+
+            try microphone.start { buffer in
+                writer.append(buffer)
             }
 
             micState = .capturing
@@ -197,7 +198,7 @@ final class RecordingSession: ObservableObject {
 
     private func startSystemAudio() {
         // Core Audio only lists a process once it has touched audio, so right after a meeting
-        // starts the conferencing app may not be there yet. Retry for a few seconds.
+        // starts the conferencing app may not be there yet. Retry once a second for 15 seconds.
         guard attachSystemTap() else {
             guard systemRetriesLeft > 0 else {
                 systemState = .unavailable("Could not find the meeting app's audio stream")
@@ -234,27 +235,22 @@ final class RecordingSession: ObservableObject {
                 return true
             }
 
-            systemWriter = try AudioTrackWriter(
+            let transcriber = systemTranscriber
+            let reference = echoReference
+            let writer = try AudioTrackWriter(
                 url: MeetingLibrary.systemTrackURL(for: meetingID),
                 sourceFormat: format,
                 label: "system",
                 timelineStartUptime: captureStartedAtUptime
-            ) { [weak self] samples in
-                self?.echoReference?.append(samples)
-                self?.systemTranscriber?.feed(samples)
+            ) { samples in
+                reference?.append(samples)
+                transcriber?.feed(samples)
             }
+            systemWriter = writer
 
-            try tap.start(
-                onFirstBuffer: { [weak self] in
-                    Task { @MainActor [weak self] in
-                        guard self?.systemState == .pending else { return }
-                        self?.systemState = .capturing
-                    }
-                },
-                onBuffer: { [weak self] buffer in
-                    self?.systemWriter?.append(buffer)
-                }
-            )
+            try tap.start { buffer in
+                writer.append(buffer)
+            }
 
             systemTap = tap
             return true
@@ -370,6 +366,10 @@ final class RecordingSession: ObservableObject {
         micLevel = micWriter?.level ?? 0
         systemLevel = systemWriter?.level ?? 0
         refreshMicrophoneDeviceName()
+
+        if systemState == .pending, systemTap?.hasDeliveredAudio == true {
+            systemState = .capturing
+        }
 
         systemPeak = max(systemPeak, systemLevel)
         let systemIsAvailable: Bool

@@ -38,31 +38,32 @@ open MeetingHelper.xcodeproj
 
 `.xcodeproj` is generated from [project.yml](project.yml) and is not stored in git.
 
-Before the first build, configure signing in Xcode:
+Before the first build, configure signing:
 
-1. Open **Xcode > Settings > Accounts** and add your Apple Account.
-2. Select the **MeetingHelper** target, then open **Signing & Capabilities**.
-3. Keep **Automatically manage signing** enabled and select your team.
-4. If Xcode says the bundle identifier is unavailable, replace `com.kovalev.MeetingHelper` with a
-   unique value such as `com.yourname.MeetingHelper`.
+1. Open **Xcode > Settings > Accounts** and add your Apple Account, then copy your team ID from
+   there.
+2. Create the ignored local signing configuration and put that team ID in it:
+
+   ```bash
+   cp Config/LocalSigning.xcconfig.example Config/LocalSigning.xcconfig
+   ```
+
+3. If Xcode says the bundle identifier is unavailable, replace `com.kovalev.MeetingHelper` in
+   [project.yml](project.yml) with a unique value such as `com.yourname.MeetingHelper`.
+
+`Config/LocalSigning.xcconfig` is the only durable place for the team ID: selecting a team in
+Xcode's **Signing & Capabilities** tab writes it into the generated `.xcodeproj`, which the next
+`xcodegen generate` overwrites.
 
 Select the **MeetingHelper** scheme and **My Mac**, then press **Command-R**. The first build can take
 a few minutes while Xcode downloads the transcription dependencies.
 
 The app must remain code signed because macOS privacy permissions are tied to its code identity.
-The project rejects builds made with `CODE_SIGNING_ALLOWED=NO`. Regenerating the project can reset
-your local signing selection, so check it again after running `xcodegen generate`.
+The project rejects builds made with `CODE_SIGNING_ALLOWED=NO`.
 
 ### Build and run from the terminal
 
-Create the ignored local signing configuration once and replace `YOUR_TEAM_ID` with the Apple
-Development team shown in Xcode under **Settings > Accounts**:
-
-```bash
-cp Config/LocalSigning.xcconfig.example Config/LocalSigning.xcconfig
-```
-
-Then generate, build, and run from the repository root:
+With `Config/LocalSigning.xcconfig` in place, generate, build, and run from the repository root:
 
 ```bash
 xcodegen generate &&

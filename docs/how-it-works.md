@@ -151,3 +151,20 @@ System audio access has no public API for checking its state. Process bundle IDs
 without permission, and `AudioHardwareCreateProcessTap` returns `noErr` when access is denied while
 delivering silence. Meeting Helper reads the state through the TCC SPI. As a fallback,
 `RecordingSession` shows a warning when the tap remains near-silent for 20 seconds.
+
+The app requests only the microphone, system audio recording and Accessibility. It holds no
+calendar or Apple Events entitlement, and nothing in the code reaches for either.
+
+When a meeting starts without microphone access, the detector keeps its state instead of clearing
+it. Clearing would let the two-second poll re-fire the start immediately, raising the same alert
+once per poll for the whole meeting; keeping it means the failure is reported once, and recording
+can be started by hand after the permission is granted.
+
+## Logging and privacy
+
+Recordings, transcripts and metadata never leave the machine unless a sync folder is configured.
+
+Meeting titles and transcript text are user data and are logged with `privacy: .private`, so they
+appear as `<private>` in `log show` and Console. Only non-identifying values — the meeting kind,
+permission states, audio formats, error descriptions — are logged as `.public`, which is what makes
+a missed meeting debuggable after the fact without exposing what was said.

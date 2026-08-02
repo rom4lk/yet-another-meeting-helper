@@ -73,7 +73,6 @@ targets:
         # are both unavailable inside the App Sandbox.
         com.apple.security.app-sandbox: false
         com.apple.security.device.audio-input: true
-        com.apple.security.automation.apple-events: true
     info:
       path: Resources/Info.plist
       properties:
@@ -88,7 +87,6 @@ targets:
         NSHumanReadableCopyright: ""
         NSMicrophoneUsageDescription: "Records your voice during the meeting."
         NSAudioCaptureUsageDescription: "Records the other participants' voices from the meeting app's audio stream."
-        NSCalendarsFullAccessUsageDescription: "Fills in the meeting title from your calendar."
   MeetingHelperTests:
     type: bundle.unit-test
     platform: macOS

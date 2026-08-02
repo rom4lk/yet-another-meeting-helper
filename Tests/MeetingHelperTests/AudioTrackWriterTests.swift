@@ -2,6 +2,25 @@ import AVFoundation
 import XCTest
 @testable import MeetingHelper
 
+/// The writer hands samples to its callback from its own queue, so the tests count them behind
+/// a lock rather than mutating a captured variable.
+private final class SampleCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var total = 0
+
+    func add(_ count: Int) {
+        lock.lock()
+        total += count
+        lock.unlock()
+    }
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return total
+    }
+}
+
 final class AudioTrackWriterTests: XCTestCase {
     func testPadsTrackToSharedTimeline() throws {
         let outputURL = FileManager.default.temporaryDirectory
@@ -21,13 +40,13 @@ final class AudioTrackWriterTests: XCTestCase {
         let channel = try XCTUnwrap(input.floatChannelData?[0])
         channel.update(repeating: 0.25, count: inputFrameCount)
 
-        var timelineSampleCount = 0
+        let timelineSampleCount = SampleCounter()
         var writer: AudioTrackWriter? = try AudioTrackWriter(
             url: outputURL,
             sourceFormat: format,
             label: "timeline-test",
             timelineStartUptime: 100,
-            onSamples: { timelineSampleCount += $0.count }
+            onSamples: { timelineSampleCount.add($0.count) }
         )
 
         writer?.append(input, capturedAtUptime: 101.1)
@@ -37,7 +56,7 @@ final class AudioTrackWriterTests: XCTestCase {
 
         let file = try AVAudioFile(forReading: outputURL)
         XCTAssertEqual(file.length, 17_600)
-        XCTAssertEqual(timelineSampleCount, 17_600)
+        XCTAssertEqual(timelineSampleCount.value, 17_600)
         XCTAssertEqual(duration, 1.1, accuracy: 0.001)
     }
 
@@ -94,13 +113,13 @@ final class AudioTrackWriterTests: XCTestCase {
         try XCTUnwrap(stereo.floatChannelData?[0]).update(repeating: 0.25, count: 1_600)
         try XCTUnwrap(stereo.floatChannelData?[1]).update(repeating: 0.25, count: 1_600)
 
-        var sampleCount = 0
+        let sampleCount = SampleCounter()
         var writer: AudioTrackWriter? = try AudioTrackWriter(
             url: outputURL,
             sourceFormat: monoFormat,
             label: "format-test",
             timelineStartUptime: 100,
-            onSamples: { sampleCount += $0.count }
+            onSamples: { sampleCount.add($0.count) }
         )
 
         writer?.append(mono, capturedAtUptime: 100.1)
@@ -111,7 +130,7 @@ final class AudioTrackWriterTests: XCTestCase {
 
         let file = try AVAudioFile(forReading: outputURL)
         XCTAssertEqual(file.length, 3_200)
-        XCTAssertEqual(sampleCount, 3_200)
+        XCTAssertEqual(sampleCount.value, 3_200)
         XCTAssertEqual(duration, 0.2, accuracy: 0.001)
     }
 }

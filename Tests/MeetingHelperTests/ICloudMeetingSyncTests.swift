@@ -163,8 +163,7 @@ final class ICloudMeetingSyncTests: XCTestCase {
     }
 
     private func makeEngine() -> ICloudMeetingSyncEngine {
-        let containerRoot = containerRoot!
-        return ICloudMeetingSyncEngine(
+        ICloudMeetingSyncEngine(
             localMeetingsRoot: localMeetingsRoot,
             localTombstonesRoot: localTombstonesRoot,
             coordinatesRemoteAccess: false

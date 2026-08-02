@@ -31,7 +31,7 @@ struct ActiveRecordingView: View {
 
                 Spacer()
 
-                Text(FloatingTranscriptView.format(session.elapsed))
+                Text(session.elapsed.clockString)
                     .font(.title3.monospacedDigit())
                     .foregroundStyle(.secondary)
 

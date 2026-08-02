@@ -59,11 +59,6 @@ extension AudioObjectID {
     var isRunningInput: Bool {
         (try? readBool(kAudioProcessPropertyIsRunningInput)) ?? false
     }
-
-    /// `true` while the process is playing audio.
-    var isRunningOutput: Bool {
-        (try? readBool(kAudioProcessPropertyIsRunningOutput)) ?? false
-    }
 }
 
 // MARK: - Devices and taps
@@ -78,10 +73,6 @@ extension AudioObjectID {
 
     func readDeviceName() throws -> String {
         try readString(kAudioObjectPropertyName)
-    }
-
-    func readDeviceUID() throws -> String {
-        try readString(kAudioDevicePropertyDeviceUID)
     }
 
     func readTapStreamBasicDescription() throws -> AudioStreamBasicDescription {

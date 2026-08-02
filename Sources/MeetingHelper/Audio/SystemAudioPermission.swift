@@ -17,7 +17,7 @@ enum SystemAudioPermission {
         case unknown
     }
 
-    private static let service = "kTCCServiceAudioCapture" as CFString
+    nonisolated(unsafe) private static let service = "kTCCServiceAudioCapture" as CFString
 
     static func status() -> Status {
         guard let preflight = preflightSPI else { return .unknown }
@@ -61,7 +61,8 @@ enum SystemAudioPermission {
     private typealias PreflightFunction = @convention(c) (CFString, CFDictionary?) -> Int
     private typealias RequestFunction = @convention(c) (CFString, CFDictionary?, @escaping (Bool) -> Void) -> Void
 
-    private static let tccHandle: UnsafeMutableRawPointer? = {
+    // Resolved once and never mutated; the handle and symbols stay valid for the process lifetime.
+    nonisolated(unsafe) private static let tccHandle: UnsafeMutableRawPointer? = {
         dlopen("/System/Library/PrivateFrameworks/TCC.framework/Versions/A/TCC", RTLD_NOW)
     }()
 

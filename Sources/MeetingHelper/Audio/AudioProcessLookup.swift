@@ -26,23 +26,9 @@ enum AudioProcessLookup {
         }
     }
 
-    /// Process objects that are currently producing audio — the ones worth tapping.
-    static func audibleObjectIDs(prefixes: [String]) -> [AudioObjectID] {
-        matches(prefixes: prefixes)
-            .filter { $0.objectID.isRunningOutput }
-            .map(\.objectID)
-    }
-
     /// `true` when any process of the family holds the microphone. This is the signal that
     /// tells "a browser tab is in a call" apart from "a browser tab is playing a video".
     static func isCapturingInput(prefixes: [String]) -> Bool {
         matches(prefixes: prefixes).contains { $0.objectID.isRunningInput }
-    }
-
-    /// PIDs of the family's processes that hold the microphone.
-    static func capturingPIDs(prefixes: [String]) -> [pid_t] {
-        matches(prefixes: prefixes)
-            .filter { $0.objectID.isRunningInput }
-            .map(\.pid)
     }
 }

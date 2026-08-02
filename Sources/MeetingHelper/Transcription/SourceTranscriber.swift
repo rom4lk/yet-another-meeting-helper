@@ -1,6 +1,6 @@
 import Foundation
 
-enum SourceTranscriptionUpdate {
+enum SourceTranscriptionUpdate: Sendable {
     case preview(TranscriptLine)
     case final(TranscriptLine)
     case removePreview(UUID)
@@ -10,7 +10,10 @@ enum SourceTranscriptionUpdate {
 ///
 /// Whisper is not a streaming model, so we cut the stream into utterances with a simple energy
 /// VAD and transcribe each utterance on its own. One instance per track.
-final class SourceTranscriber {
+///
+/// `feed` is called from the track writer's queue and every mutable field below is touched only
+/// on `queue`, so instances are safe to hand to a capture callback.
+final class SourceTranscriber: @unchecked Sendable {
     private enum Constants {
         static let sampleRate: Double = AudioTrackWriter.sampleRate
         static let frameSize = EchoReference.frameSize  // 100 ms
@@ -27,13 +30,13 @@ final class SourceTranscriber {
     }
 
     private let source: TranscriptSource
-    private let transcribe: ([Float], String?) async -> String?
-    private let onUpdate: (SourceTranscriptionUpdate) -> Void
+    private let transcribe: @Sendable ([Float], String?) async -> String?
+    private let onUpdate: @MainActor (SourceTranscriptionUpdate) -> Void
     private let queue: DispatchQueue
     private let realtimeUpdatesEnabled: Bool
     private let echoReference: EchoReference?
     /// Reports every echo-gate decision so the recording UI can show that the gate is working.
-    private let onEchoVerdict: ((EchoVerdict) -> Void)?
+    private let onEchoVerdict: (@MainActor (EchoVerdict) -> Void)?
 
     private var language: String?
 
@@ -54,69 +57,50 @@ final class SourceTranscriber {
     private var previewGeneration = 0
     private var activePreviewGeneration: Int?
     private var activePreviewTask: Task<Void, Never>?
-    /// In-flight transcription tasks, only ever touched on `queue`.
-    private var tasks: [Task<Void, Never>] = []
+    /// In-flight transcription tasks, only ever touched on `queue`. Each one drops its own entry
+    /// when it finishes, so a long meeting does not accumulate a handle per utterance.
+    private var tasks: [Int: Task<Void, Never>] = [:]
+    private var nextTaskID = 0
 
     init(
+        source: TranscriptSource,
+        language: String?,
+        realtimeUpdatesEnabled: Bool,
+        echoReference: EchoReference? = nil,
+        onEchoVerdict: (@MainActor (EchoVerdict) -> Void)? = nil,
+        transcribe: @escaping @Sendable ([Float], String?) async -> String?,
+        onUpdate: @escaping @MainActor (SourceTranscriptionUpdate) -> Void
+    ) {
+        self.source = source
+        self.transcribe = transcribe
+        self.language = language
+        self.realtimeUpdatesEnabled = realtimeUpdatesEnabled
+        self.echoReference = echoReference
+        self.onEchoVerdict = onEchoVerdict
+        self.onUpdate = onUpdate
+        self.queue = DispatchQueue(label: "com.kovalev.MeetingHelper.vad.\(source.rawValue)", qos: .utility)
+    }
+
+    convenience init(
         source: TranscriptSource,
         engine: TranscriptionEngine,
         language: String?,
         realtimeUpdatesEnabled: Bool,
         echoReference: EchoReference? = nil,
-        onEchoVerdict: ((EchoVerdict) -> Void)? = nil,
-        onUpdate: @escaping (SourceTranscriptionUpdate) -> Void
+        onEchoVerdict: (@MainActor (EchoVerdict) -> Void)? = nil,
+        onUpdate: @escaping @MainActor (SourceTranscriptionUpdate) -> Void
     ) {
-        self.source = source
-        self.transcribe = { [engine] samples, language in
-            await engine.transcribe(samples, language: language)
-        }
-        self.language = language
-        self.realtimeUpdatesEnabled = realtimeUpdatesEnabled
-        self.echoReference = echoReference
-        self.onEchoVerdict = onEchoVerdict
-        self.onUpdate = onUpdate
-        self.queue = DispatchQueue(label: "com.kovalev.MeetingHelper.vad.\(source.rawValue)", qos: .utility)
-    }
-
-    init(
-        source: TranscriptSource,
-        language: String?,
-        realtimeUpdatesEnabled: Bool = false,
-        echoReference: EchoReference? = nil,
-        onEchoVerdict: ((EchoVerdict) -> Void)? = nil,
-        transcribe: @escaping ([Float], String?) async -> String?,
-        onLine: @escaping (TranscriptLine) -> Void
-    ) {
-        self.source = source
-        self.transcribe = transcribe
-        self.language = language
-        self.realtimeUpdatesEnabled = realtimeUpdatesEnabled
-        self.echoReference = echoReference
-        self.onEchoVerdict = onEchoVerdict
-        self.onUpdate = { update in
-            guard case .final(let line) = update else { return }
-            onLine(line)
-        }
-        self.queue = DispatchQueue(label: "com.kovalev.MeetingHelper.vad.\(source.rawValue)", qos: .utility)
-    }
-
-    init(
-        source: TranscriptSource,
-        language: String?,
-        realtimeUpdatesEnabled: Bool,
-        echoReference: EchoReference? = nil,
-        onEchoVerdict: ((EchoVerdict) -> Void)? = nil,
-        transcribe: @escaping ([Float], String?) async -> String?,
-        onUpdate: @escaping (SourceTranscriptionUpdate) -> Void
-    ) {
-        self.source = source
-        self.transcribe = transcribe
-        self.language = language
-        self.realtimeUpdatesEnabled = realtimeUpdatesEnabled
-        self.echoReference = echoReference
-        self.onEchoVerdict = onEchoVerdict
-        self.onUpdate = onUpdate
-        self.queue = DispatchQueue(label: "com.kovalev.MeetingHelper.vad.\(source.rawValue)", qos: .utility)
+        self.init(
+            source: source,
+            language: language,
+            realtimeUpdatesEnabled: realtimeUpdatesEnabled,
+            echoReference: echoReference,
+            onEchoVerdict: onEchoVerdict,
+            transcribe: { samples, language in
+                await engine.transcribe(samples, language: language)
+            },
+            onUpdate: onUpdate
+        )
     }
 
     func feed(_ samples: [Float]) {
@@ -149,7 +133,7 @@ final class SourceTranscriber {
                     self.preRoll.removeAll()
                     self.preRollEnergies.removeAll()
                     self.utteranceID = nil
-                    self.tasks.forEach { $0.cancel() }
+                    self.tasks.values.forEach { $0.cancel() }
                     self.tasks.removeAll()
                     return continuation.resume()
                 }
@@ -163,16 +147,27 @@ final class SourceTranscriber {
             }
         }
 
-        let pending = queue.sync { tasks }
+        let pending = queue.sync { Array(tasks.values) }
         for task in pending {
             await task.value
+        }
+    }
+
+    /// Runs a transcription task and forgets the handle once it completes.
+    private func track(_ body: @escaping @Sendable () async -> Void) {
+        let id = nextTaskID
+        nextTaskID += 1
+        tasks[id] = Task { [weak self, queue] in
+            await body()
+            guard let self else { return }
+            queue.async { self.tasks[id] = nil }
         }
     }
 
     private func consume(_ frame: [Float]) {
         framesSeen += 1
 
-        let energy = Self.rms(frame)
+        let energy = rootMeanSquare(frame)
         // Track the quietest recent level as the noise floor so the threshold follows the room.
         if energy < noiseFloor {
             noiseFloor = noiseFloor * 0.9 + energy * 0.1
@@ -256,29 +251,28 @@ final class SourceTranscriber {
         let source = self.source
         let language = self.language
 
-        let task = Task { [transcribe, onUpdate, onEchoVerdict, echoReference] in
+        track { [transcribe, onUpdate, onEchoVerdict, echoReference] in
             if let previewTask {
                 await previewTask.value
             }
             guard !Task.isCancelled else { return }
             if let echoReference {
                 let verdict = await Self.verdict(for: energies, at: offset, reference: echoReference)
-                await MainActor.run { onEchoVerdict?(verdict) }
+                await onEchoVerdict?(verdict)
                 if verdict == .echo {
                     Log.audio.info("Dropped speaker leakage at \(offset, privacy: .public) s")
-                    await MainActor.run { onUpdate(.removePreview(utteranceID)) }
+                    await onUpdate(.removePreview(utteranceID))
                     return
                 }
             }
             guard let text = await transcribe(samples, language) else {
-                await MainActor.run { onUpdate(.removePreview(utteranceID)) }
+                await onUpdate(.removePreview(utteranceID))
                 return
             }
             guard !Task.isCancelled else { return }
             let line = TranscriptLine(id: utteranceID, source: source, offset: offset, text: text)
-            await MainActor.run { onUpdate(.final(line)) }
+            await onUpdate(.final(line))
         }
-        tasks.append(task)
     }
 
     /// Recognizes an expanding snapshot of the active utterance. Every snapshot overlaps the
@@ -311,7 +305,7 @@ final class SourceTranscriber {
                     return
                 }
                 if verdict == .echo {
-                    await MainActor.run { onUpdate(.removePreview(utteranceID)) }
+                    await onUpdate(.removePreview(utteranceID))
                     queue.async { [weak self] in self?.previewDidFinish(generation) }
                     return
                 }
@@ -319,7 +313,7 @@ final class SourceTranscriber {
 
             if let text = await transcribe(samples, language), !Task.isCancelled {
                 let line = TranscriptLine(id: utteranceID, source: source, offset: offset, text: text)
-                await MainActor.run { onUpdate(.preview(line)) }
+                await onUpdate(.preview(line))
             }
             queue.async { [weak self] in self?.previewDidFinish(generation) }
         }
@@ -334,14 +328,13 @@ final class SourceTranscriber {
     }
 
     private func schedulePreviewRemoval(_ id: UUID, after previewTask: Task<Void, Never>?) {
-        let task = Task { [onUpdate] in
+        track { [onUpdate] in
             if let previewTask {
                 await previewTask.value
             }
             guard !Task.isCancelled else { return }
-            await MainActor.run { onUpdate(.removePreview(id)) }
+            await onUpdate(.removePreview(id))
         }
-        tasks.append(task)
     }
 
     /// Waits for the system track to reach the end of the utterance, then asks the gate.
@@ -375,9 +368,4 @@ final class SourceTranscriber {
         return EchoGate.isEcho(microphone: energies, reference: window) ? .echo : .speech
     }
 
-    private static func rms(_ samples: [Float]) -> Float {
-        var sum: Float = 0
-        for sample in samples { sum += sample * sample }
-        return (sum / Float(samples.count)).squareRoot()
-    }
 }

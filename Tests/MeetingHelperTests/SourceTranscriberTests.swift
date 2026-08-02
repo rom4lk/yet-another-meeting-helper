@@ -106,7 +106,7 @@ final class SourceTranscriberTests: XCTestCase {
         let speech = [Float](repeating: 0.1, count: 40 * EchoReference.frameSize)
         let silence = [Float](repeating: 0, count: 8 * EchoReference.frameSize)
 
-        let transcriber = SourceTranscriber(
+        let transcriber = makeTranscriber(
             source: .others,
             language: "en",
             realtimeUpdatesEnabled: false,
@@ -123,7 +123,7 @@ final class SourceTranscriberTests: XCTestCase {
 
     func testFinishDoesNotWaitForTranscriptionWhenRecognitionIsNotReady() async {
         let transcriptionStarted = expectation(description: "Transcription started")
-        let transcriber = SourceTranscriber(
+        let transcriber = makeTranscriber(
             source: .me,
             language: "en",
             transcribe: { _, _ in
@@ -186,7 +186,7 @@ final class SourceTranscriberTests: XCTestCase {
         let heard = Self.silence + Self.burst.map { $0 * 0.3 } + Self.silence
         let verdicts = Verdicts()
 
-        let transcriber = SourceTranscriber(
+        let transcriber = makeTranscriber(
             source: .me,
             language: "en",
             echoReference: reference(played),
@@ -209,7 +209,7 @@ final class SourceTranscriberTests: XCTestCase {
         let heard = Self.silence + ownVoice + Self.silence
         let verdicts = Verdicts()
 
-        let transcriber = SourceTranscriber(
+        let transcriber = makeTranscriber(
             source: .me,
             language: "en",
             echoReference: reference(played),
@@ -232,7 +232,7 @@ final class SourceTranscriberTests: XCTestCase {
         let verdicts = Verdicts()
         let heard = Self.silence + Self.burst.map { $0 * 0.3 } + Self.silence
 
-        let transcriber = SourceTranscriber(
+        let transcriber = makeTranscriber(
             source: .me,
             language: "en",
             echoReference: nil,
@@ -256,7 +256,7 @@ final class SourceTranscriberTests: XCTestCase {
         let heard = Self.silence + Self.burst.map { $0 * 0.3 } + Self.silence
         let verdicts = Verdicts()
 
-        let transcriber = SourceTranscriber(
+        let transcriber = makeTranscriber(
             source: .me,
             language: "en",
             echoReference: EchoReference(),
@@ -271,4 +271,32 @@ final class SourceTranscriberTests: XCTestCase {
 
         XCTAssertEqual(verdicts.reported, [.undecided])
     }
+
+    // MARK: - Helpers
+
+    /// The transcriber reports through a single `onUpdate` stream; several tests below only care
+    /// about finished lines, so they go through this wrapper instead of a second initializer.
+    private func makeTranscriber(
+        source: TranscriptSource,
+        language: String?,
+        realtimeUpdatesEnabled: Bool = false,
+        echoReference: EchoReference? = nil,
+        onEchoVerdict: (@MainActor (EchoVerdict) -> Void)? = nil,
+        transcribe: @escaping @Sendable ([Float], String?) async -> String?,
+        onLine: @escaping @MainActor (TranscriptLine) -> Void
+    ) -> SourceTranscriber {
+        SourceTranscriber(
+            source: source,
+            language: language,
+            realtimeUpdatesEnabled: realtimeUpdatesEnabled,
+            echoReference: echoReference,
+            onEchoVerdict: onEchoVerdict,
+            transcribe: transcribe,
+            onUpdate: { update in
+                guard case .final(let line) = update else { return }
+                onLine(line)
+            }
+        )
+    }
 }
+

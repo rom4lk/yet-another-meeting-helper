@@ -5,13 +5,17 @@ import Foundation
 ///
 /// The engine stops itself whenever the input device changes (headphones connect, the default
 /// device switches) and never restarts on its own, so a configuration-change observer restarts it.
+///
+/// `prepare()` is separate from `start()` so the caller can build its writer against the real
+/// input format *before* any buffer can arrive. Otherwise the tap callback would have to reach
+/// back for a writer that does not exist yet — a data race on the audio thread.
 final class MicrophoneCapture {
     private var engine: AVAudioEngine?
     private var configurationChangeObserver: (any NSObjectProtocol)?
     private var restartScheduled = false
     private var restartGeneration = 0
 
-    private var onBuffer: ((AVAudioPCMBuffer) -> Void)?
+    private var onBuffer: (@Sendable (AVAudioPCMBuffer) -> Void)?
     private var isRunning = false
 
     private(set) var format: AVAudioFormat?
@@ -20,11 +24,30 @@ final class MicrophoneCapture {
         stop()
     }
 
-    func start(onBuffer: @escaping (AVAudioPCMBuffer) -> Void) throws {
+    /// Creates the engine and reports the input device's current format without capturing yet.
+    @discardableResult
+    func prepare() throws -> AVAudioFormat {
+        if let format, engine != nil { return format }
+
+        let engine = AVAudioEngine()
+        let format = engine.inputNode.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            throw CoreAudioError("Microphone unavailable: no input device is selected in the system.")
+        }
+
+        self.engine = engine
+        self.format = format
+        return format
+    }
+
+    func start(onBuffer: @escaping @Sendable (AVAudioPCMBuffer) -> Void) throws {
         guard !isRunning else { return }
         self.onBuffer = onBuffer
 
-        try startEngine(onBuffer: onBuffer)
+        try prepare()
+        guard let engine else { throw CoreAudioError("Microphone engine unavailable.") }
+        try attachTap(to: engine, onBuffer: onBuffer)
+        observeConfigurationChanges(of: engine)
         isRunning = true
     }
 
@@ -38,11 +61,14 @@ final class MicrophoneCapture {
         onBuffer = nil
     }
 
-    private func startEngine(onBuffer: @escaping (AVAudioPCMBuffer) -> Void) throws {
+    private func startEngine(onBuffer: @escaping @Sendable (AVAudioPCMBuffer) -> Void) throws {
         let engine = AVAudioEngine()
         try attachTap(to: engine, onBuffer: onBuffer)
         self.engine = engine
+        observeConfigurationChanges(of: engine)
+    }
 
+    private func observeConfigurationChanges(of engine: AVAudioEngine) {
         configurationChangeObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange,
             object: engine,
@@ -52,7 +78,10 @@ final class MicrophoneCapture {
         }
     }
 
-    private func attachTap(to engine: AVAudioEngine, onBuffer: @escaping (AVAudioPCMBuffer) -> Void) throws {
+    private func attachTap(
+        to engine: AVAudioEngine,
+        onBuffer: @escaping @Sendable (AVAudioPCMBuffer) -> Void
+    ) throws {
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {

@@ -43,8 +43,8 @@ enum EchoGate {
             let start = maximumLagFrames - lag
             let candidate = Array(reference[start..<(start + microphone.count)])
 
-            guard decibels(rms(candidate)) >= minimumReferenceLevel,
-                  decibels(rms(microphone)) - decibels(rms(candidate)) <= maximumLevelDifference
+            guard decibels(rootMeanSquare(candidate)) >= minimumReferenceLevel,
+                  decibels(rootMeanSquare(microphone)) - decibels(rootMeanSquare(candidate)) <= maximumLevelDifference
             else { continue }
 
             if correlation(microphone, candidate) >= minimumCorrelation { return true }
@@ -74,13 +74,6 @@ enum EchoGate {
 
         guard leftVariance > 0, rightVariance > 0 else { return 0 }
         return covariance / (leftVariance * rightVariance).squareRoot()
-    }
-
-    private static func rms(_ levels: [Float]) -> Float {
-        guard !levels.isEmpty else { return 0 }
-        var sum: Float = 0
-        for level in levels { sum += level * level }
-        return (sum / Float(levels.count)).squareRoot()
     }
 
     private static func decibels(_ value: Float) -> Float {

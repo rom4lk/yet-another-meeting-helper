@@ -13,6 +13,9 @@ Config/LocalSigning.xcconfig
 .build/
 .swiftpm/
 
+# JetBrains IDEs
+.idea/
+
 # macOS
 .DS_Store
 

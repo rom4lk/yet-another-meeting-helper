@@ -62,7 +62,7 @@ private struct MenuBarContent: View {
     var body: some View {
         if let session = controller.session {
             Text("Recording: \(session.title)")
-            Text(FloatingTranscriptView.format(session.elapsed))
+            Text(session.elapsed.clockString)
             Text("Microphone: \(session.microphoneDeviceName)")
             Button("Stop Recording") { controller.stopRecording() }
         } else {

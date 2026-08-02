@@ -99,6 +99,11 @@ actor TranscriptionEngine {
         "."
     ]
 
+    /// Whether a recognised phrase is one of the known near-silence artefacts.
+    static func isHallucination(_ text: String) -> Bool {
+        hallucinations.contains(text.lowercased())
+    }
+
     /// Whether every file required by the selected backend is already cached, so a download would
     /// be a no-op. Checking the full set matters because interrupted downloads leave partial model
     /// folders behind.
@@ -177,8 +182,8 @@ actor TranscriptionEngine {
         loadingModel = model
         loadGeneration += 1
         let generation = loadGeneration
-        whisperKit = nil
-        parakeet = nil
+        // The previously prepared model stays resident until the new one is in: a failed switch
+        // must not leave an active recording with no recogniser at all.
         let task = Task<Void, Error> {
             if model == AppSettings.parakeetModelID {
                 let models = try await AsrModels.downloadAndLoad(version: .v3) { progress in
@@ -234,11 +239,16 @@ actor TranscriptionEngine {
             Log.asr.notice("Transcription model ready: \(model, privacy: .public)")
         } catch {
             guard generation == loadGeneration else { throw error }
-            state = .failed(error.localizedDescription)
-            loadedModel = nil
             loadTask = nil
             loadingModel = nil
             preparationStage = nil
+            if let loadedModel, hasLoadedModel(loadedModel) {
+                // The switch failed but the earlier model is untouched, so recognition keeps working.
+                state = .ready
+            } else {
+                state = .failed(error.localizedDescription)
+                loadedModel = nil
+            }
             Log.asr.error("Transcription model failed to load: \(error, privacy: .public)")
             throw error
         }
@@ -307,8 +317,9 @@ actor TranscriptionEngine {
         }
 
         guard !text.isEmpty else { return nil }
-        guard !Self.hallucinations.contains(text.lowercased()) else {
-            Log.asr.debug("Dropped hallucination: \(text, privacy: .public)")
+        guard !Self.isHallucination(text) else {
+            // Transcript content is user data — never widen this to `.public`.
+            Log.asr.debug("Dropped hallucination: \(text, privacy: .private)")
             return nil
         }
 

@@ -10,7 +10,7 @@ import os
 ///
 /// Written from the system track's writer callback and read from the microphone transcriber's
 /// queue, hence the lock.
-final class EchoReference {
+final class EchoReference: Sendable {
     /// 100 ms at `AudioTrackWriter.sampleRate`, the same frame the transcriber's VAD uses.
     static let frameSize = 1_600
     static let frameDuration = Double(frameSize) / AudioTrackWriter.sampleRate
@@ -47,7 +47,7 @@ final class EchoReference {
                 let frame = state.pending.prefix(Self.frameSize)
                 state.pending.removeFirst(Self.frameSize)
 
-                state.levels.append(Self.rms(frame))
+                state.levels.append(rootMeanSquare(frame))
                 state.framesWritten += 1
                 if state.levels.count > Self.capacity {
                     state.levels.removeFirst()
@@ -69,12 +69,5 @@ final class EchoReference {
             let lower = startFrame - state.firstFrameIndex
             return Array(state.levels[lower..<(lower + frameCount)])
         }
-    }
-
-    private static func rms(_ samples: ArraySlice<Float>) -> Float {
-        guard !samples.isEmpty else { return 0 }
-        var sum: Float = 0
-        for sample in samples { sum += sample * sample }
-        return (sum / Float(samples.count)).squareRoot()
     }
 }

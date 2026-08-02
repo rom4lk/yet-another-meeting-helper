@@ -26,8 +26,6 @@
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Records the other participants' voices from the meeting app's audio stream.</string>
-	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>Fills in the meeting title from your calendar.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>

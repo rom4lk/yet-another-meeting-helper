@@ -9,7 +9,10 @@ import os
 /// speech is treated as the user, and system-track speech as everyone else. Echo cancellation (in
 /// MicrophoneCapture) and transcript deduplication handle speaker playback that leaks back into
 /// the microphone.
-final class AudioTrackWriter {
+///
+/// Safe to call from a capture thread: every mutable field below is touched only on `queue`, and
+/// the two values the interface reads live behind their own locks.
+final class AudioTrackWriter: @unchecked Sendable {
     static let sampleRate: Double = 16_000
 
     static var targetFormat: AVAudioFormat {
@@ -26,7 +29,7 @@ final class AudioTrackWriter {
     private var converter: AVAudioConverter
     private let target = AudioTrackWriter.targetFormat
     private let timelineStartUptime: TimeInterval
-    private let onSamples: ([Float]) -> Void
+    private let onSamples: @Sendable ([Float]) -> Void
 
     private let levelStorage = OSAllocatedUnfairLock<Float>(initialState: 0)
     private var finished = false
@@ -43,7 +46,7 @@ final class AudioTrackWriter {
         sourceFormat: AVAudioFormat,
         label: String,
         timelineStartUptime: TimeInterval,
-        onSamples: @escaping ([Float]) -> Void
+        onSamples: @escaping @Sendable ([Float]) -> Void
     ) throws {
         guard let converter = AVAudioConverter(from: sourceFormat, to: target) else {
             throw CoreAudioError("Cannot convert \(sourceFormat) to 16 kHz mono.")
@@ -98,14 +101,21 @@ final class AudioTrackWriter {
         let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1024
         guard let output = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return }
 
-        var consumed = false
+        // The converter calls its input block repeatedly until it has enough frames; the buffer
+        // is handed over exactly once. A reference type carries that flag because the block is
+        // typed as escaping even though it only ever runs inside `convert`.
+        final class InputSupply: @unchecked Sendable {
+            var consumed = false
+        }
+        let supply = InputSupply()
+
         var error: NSError?
         let status = converter.convert(to: output, error: &error) { _, outStatus in
-            if consumed {
+            if supply.consumed {
                 outStatus.pointee = .noDataNow
                 return nil
             }
-            consumed = true
+            supply.consumed = true
             outStatus.pointee = .haveData
             return buffer
         }
@@ -163,22 +173,17 @@ final class AudioTrackWriter {
             channel.update(from: baseAddress, count: samples.count)
         }
 
+        let writtenFrames = Int64(output.frameLength)
         do {
             try file.write(from: output)
-            frameCountStorage.withLock { $0 += Int64(output.frameLength) }
+            frameCountStorage.withLock { $0 += writtenFrames }
         } catch {
             Log.audio.error("Write failed: \(error, privacy: .public)")
         }
 
-        levelStorage.withLock { $0 = Self.rms(samples) }
+        let level = rootMeanSquare(samples)
+        levelStorage.withLock { $0 = level }
         onSamples(samples)
-    }
-
-    private static func rms(_ samples: [Float]) -> Float {
-        guard !samples.isEmpty else { return 0 }
-        var sum: Float = 0
-        for sample in samples { sum += sample * sample }
-        return (sum / Float(samples.count)).squareRoot()
     }
 }
 

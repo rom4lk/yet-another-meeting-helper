@@ -4,9 +4,11 @@ import Foundation
 /// A system-wide hotkey. Carbon's `RegisterEventHotKey` is used on purpose: unlike an
 /// `NSEvent` global monitor it does not require the Accessibility permission.
 final class GlobalHotkey {
-    private static var handlers: [UInt32: () -> Void] = [:]
-    private static var nextID: UInt32 = 1
-    private static var eventHandler: EventHandlerRef?
+    // Main-thread only: hotkeys are registered and released from `AppController`, and the Carbon
+    // callback below hops to the main queue before it reaches the table.
+    nonisolated(unsafe) private static var handlers: [UInt32: () -> Void] = [:]
+    nonisolated(unsafe) private static var nextID: UInt32 = 1
+    nonisolated(unsafe) private static var eventHandler: EventHandlerRef?
 
     private let id: UInt32
     private var hotKeyRef: EventHotKeyRef?
@@ -48,8 +50,9 @@ final class GlobalHotkey {
             )
             guard status == noErr else { return status }
 
+            let id = hotKeyID.id
             DispatchQueue.main.async {
-                GlobalHotkey.handlers[hotKeyID.id]?()
+                GlobalHotkey.handlers[id]?()
             }
             return noErr
         }, 1, &spec, nil, &eventHandler)

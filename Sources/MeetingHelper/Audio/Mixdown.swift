@@ -28,7 +28,8 @@ enum Mixdown {
         do {
             let output = try AVAudioFile(forWriting: outputURL, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
             let totalFrames = inputs.map(\.length).max() ?? 0
-            // Two speakers rarely peak together; halving each keeps headroom without a limiter.
+            // Two speakers rarely peak together, so attenuating each by a quarter leaves enough
+            // headroom without a limiter; the clamp below catches the rare overlap.
             let gain: Float = inputs.count > 1 ? 0.75 : 1.0
 
             var position: AVAudioFramePosition = 0

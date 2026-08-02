@@ -1,9 +1,13 @@
 import AudioToolbox
 import AVFoundation
 import Foundation
+import os
 
 /// Captures system output using a Core Audio process tap (macOS 14.4+).
-final class SystemAudioTap {
+///
+/// The Core Audio object IDs below are set during `prepare()` and read by the IO proc, which only
+/// runs between `start()` and `stop()`, so they are never mutated while a callback can observe them.
+final class SystemAudioTap: @unchecked Sendable {
     enum Scope {
         case processes([AudioObjectID])
         case allSystemAudio(excluding: [AudioObjectID])
@@ -21,6 +25,11 @@ final class SystemAudioTap {
     private var ioProcID: AudioDeviceIOProcID?
 
     private(set) var format: AVAudioFormat?
+
+    private let deliveredAudio = OSAllocatedUnfairLock(initialState: false)
+
+    /// `true` once the tap has handed over at least one buffer.
+    var hasDeliveredAudio: Bool { deliveredAudio.withLock { $0 } }
 
     init(scope: Scope) {
         self.scope = scope
@@ -75,19 +84,21 @@ final class SystemAudioTap {
 
     /// Starts delivering buffers on a private serial queue. The buffer is only valid for the
     /// duration of the callback — copy anything you need to keep.
-    func start(
-        onFirstBuffer: @escaping () -> Void,
-        onBuffer: @escaping (AVAudioPCMBuffer) -> Void
-    ) throws {
+    ///
+    /// Whether any audio has arrived is exposed as `hasDeliveredAudio` rather than as a callback:
+    /// the recording session already polls this object several times a second, and a flag behind a
+    /// lock crosses the thread boundary without handing a main-actor closure to the audio thread.
+    func start(onBuffer: @escaping @Sendable (AVAudioPCMBuffer) -> Void) throws {
         guard let format, aggregateDeviceID.isValid else {
             throw CoreAudioError("System audio tap was not prepared.")
         }
 
-        final class DeliveryState {
-            var deliveredFirstBuffer = false
+        // Touched only from the IO proc's serial queue.
+        final class DeliveryState: @unchecked Sendable {
             var reportedInvalidLayout = false
         }
         let deliveryState = DeliveryState()
+        let delivered = deliveredAudio
 
         try createIOProc { inputData in
             let bufferCount = Int(inputData.pointee.mNumberBuffers)
@@ -109,10 +120,7 @@ final class SystemAudioTap {
             ) else { return }
 
             onBuffer(buffer)
-            if !deliveryState.deliveredFirstBuffer {
-                deliveryState.deliveredFirstBuffer = true
-                onFirstBuffer()
-            }
+            delivered.withLock { $0 = true }
         }
 
         try startAggregateDevice()
@@ -187,7 +195,7 @@ final class SystemAudioTap {
     }
 
     private func createIOProc(
-        onInputData: @escaping (UnsafePointer<AudioBufferList>) -> Void
+        onInputData: @escaping @Sendable (UnsafePointer<AudioBufferList>) -> Void
     ) throws {
         var lastError: OSStatus = noErr
 

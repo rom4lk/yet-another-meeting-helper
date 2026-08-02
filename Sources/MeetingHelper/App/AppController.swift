@@ -37,6 +37,7 @@ final class AppController: ObservableObject {
     private var sessionObserver: AnyCancellable?
     private var storeObserver: AnyCancellable?
     private var iCloudSyncObserver: AnyCancellable?
+    private var hasBootstrapped = false
 
     var isRecording: Bool { session != nil }
     var isPanelVisible: Bool { panelController.isVisible }
@@ -60,7 +61,14 @@ final class AppController: ObservableObject {
 
     // MARK: - Bootstrap
 
+    /// Runs once per launch. The main window is a `Window` scene, so closing it and reopening it
+    /// from the menu bar calls `onAppear` again — and re-registering the hotkeys from there would
+    /// hit `eventHotKeyExistsErr` for the still-live combinations, drop both registrations and
+    /// leave the app with no working shortcuts.
     func bootstrap() {
+        guard !hasBootstrapped else { return }
+        hasBootstrapped = true
+
 #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--ui-testing-sidebar-recording-transition") {
             scheduleSidebarLayoutTestTransition()
@@ -310,9 +318,15 @@ final class AppController: ObservableObject {
         guard session == nil else { return }
 
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
+            // Keep the detector's state for an automatically detected meeting. Clearing it would
+            // let the next poll fire `onStart` again two seconds later, raising this alert once
+            // per poll for as long as the meeting runs. A manual recording has nothing to
+            // re-detect, so its state is cleared to leave auto-detection free.
+            if meeting.kind == .manual {
+                detector.clearCurrent()
+            }
             requestMicrophonePermission()
             errorMessage = "No microphone access. Grant the permission and start recording again."
-            detector.clearCurrent()
             return
         }
 

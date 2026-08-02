@@ -105,6 +105,10 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
+                Text("The language and the model below behave differently: the language is fixed for the whole recording, while switching the model reloads it right away, including during a recording.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 Picker("Language", selection: Binding(
                     get: { controller.settings.language },
                     set: { controller.settings.language = $0 }

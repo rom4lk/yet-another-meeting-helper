@@ -103,7 +103,7 @@ struct RootView: View {
                         Label {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(session.title).lineLimit(1)
-                                Text(FloatingTranscriptView.format(session.elapsed))
+                                Text(session.elapsed.clockString)
                                     .font(.caption.monospacedDigit())
                                     .foregroundStyle(.secondary)
                             }

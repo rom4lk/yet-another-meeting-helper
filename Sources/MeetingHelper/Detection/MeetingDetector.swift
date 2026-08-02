@@ -205,21 +205,38 @@ final class MeetingDetector: ObservableObject {
     }
 
     /// Google Meet window titles look like `Meet — abc-defg-hij` or `<name> - Google Meet`.
-    private static func looksLikeGoogleMeet(_ title: String) -> Bool {
+    static func looksLikeGoogleMeet(_ title: String) -> Bool {
         if title.localizedCaseInsensitiveContains("Google Meet") { return true }
         guard title.localizedCaseInsensitiveContains("Meet") else { return false }
         return title.range(of: "[a-z]{3}-[a-z]{4}-[a-z]{3}", options: [.regularExpression, .caseInsensitive]) != nil
     }
 
-    private static func cleanMeetTitle(_ title: String) -> String {
-        var cleaned = title
-        for suffix in [" - Google Chrome", " — Google Chrome", " - Safari", " — Arc", " - Microsoft​ Edge"] {
-            if cleaned.hasSuffix(suffix) {
-                cleaned.removeLast(suffix.count)
+    /// Browsers append their own name to the window title; strip it so the meeting keeps the
+    /// tab's name.
+    ///
+    /// The separator differs per browser and per macOS version, and some titles carry invisible
+    /// characters — Edge has been seen emitting a zero-width space inside its own name — so the
+    /// title is normalised before matching rather than compared against handwritten literals.
+    static func cleanMeetTitle(_ title: String) -> String {
+        let normalized = title.unicodeScalars
+            .filter { !Self.invisibleScalars.contains($0) }
+            .reduce(into: "") { $0.unicodeScalars.append($1) }
+
+        for name in MeetingApp.browsers.map(\.displayName) {
+            for separator in ["-", "—", "–"] {
+                let suffix = " \(separator) \(name)"
+                if normalized.hasSuffix(suffix) {
+                    return String(normalized.dropLast(suffix.count))
+                        .trimmingCharacters(in: .whitespaces)
+                }
             }
         }
-        return cleaned.trimmingCharacters(in: .whitespaces)
+        return normalized.trimmingCharacters(in: .whitespaces)
     }
+
+    /// Zero-width space, non-joiner, joiner and BOM: present in real window titles, invisible in
+    /// source, and enough to break a literal comparison.
+    private static let invisibleScalars: Set<Unicode.Scalar> = ["\u{200B}", "\u{200C}", "\u{200D}", "\u{FEFF}"]
 
     // MARK: - Transitions
 
@@ -228,7 +245,9 @@ final class MeetingDetector: ObservableObject {
         current = meeting
         browserPositiveTicks = 0
         browserNegativeTicks = 0
-        Log.detection.notice("Meeting started: \(meeting.kind.rawValue, privacy: .public) — \(meeting.title, privacy: .public)")
+        // The kind stays public so a missed meeting can still be debugged from `log show`; the
+        // title is user data and must not be written to the system log in the clear.
+        Log.detection.notice("Meeting started: \(meeting.kind.rawValue, privacy: .public) — \(meeting.title, privacy: .private)")
         onStart?(meeting)
     }
 

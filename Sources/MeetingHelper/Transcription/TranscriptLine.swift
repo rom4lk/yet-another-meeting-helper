@@ -28,8 +28,5 @@ struct TranscriptLine: Identifiable, Codable, Hashable {
         self.text = text
     }
 
-    var timestamp: String {
-        let total = Int(offset)
-        return String(format: "%02d:%02d", total / 60, total % 60)
-    }
+    var timestamp: String { offset.clockString }
 }

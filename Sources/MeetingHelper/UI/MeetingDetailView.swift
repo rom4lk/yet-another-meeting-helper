@@ -10,6 +10,8 @@ struct MeetingDetailView: View {
     @State private var title: String = ""
     @State private var lines: [TranscriptLine] = []
     @State private var isShowingDeleteConfirmation = false
+    @State private var editingMeetingID: UUID?
+    @FocusState private var isTitleFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -29,7 +31,10 @@ struct MeetingDetailView: View {
         }
         .onAppear(perform: load)
         .onChange(of: meeting.id) { _, _ in load() }
-        .onDisappear { player.stop() }
+        .onDisappear {
+            saveTitle()
+            player.stop()
+        }
         .confirmationDialog(
             "Delete long meeting?",
             isPresented: $isShowingDeleteConfirmation,
@@ -47,10 +52,16 @@ struct MeetingDetailView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
+                // Committing on focus loss as well as on Return: clicking away from the field is
+                // the ordinary way to finish an edit, and it used to discard it silently.
                 TextField("Meeting title", text: $title)
                     .textFieldStyle(.plain)
                     .font(.title2.weight(.semibold))
+                    .focused($isTitleFocused)
                     .onSubmit(saveTitle)
+                    .onChange(of: isTitleFocused) { wasFocused, isFocused in
+                        if wasFocused, !isFocused { saveTitle() }
+                    }
 
                 Spacer()
 
@@ -104,7 +115,7 @@ struct MeetingDetailView: View {
                 in: 0...max(player.duration, 0.1)
             )
 
-            Text("\(FloatingTranscriptView.format(player.currentTime)) / \(FloatingTranscriptView.format(player.duration))")
+            Text("\(player.currentTime.clockString) / \(player.duration.clockString)")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
         }
@@ -120,13 +131,20 @@ struct MeetingDetailView: View {
 
     private func load() {
         title = meeting.title
+        editingMeetingID = meeting.id
         lines = controller.store.transcript(for: meeting.id)
         player.load(url: MeetingLibrary.mixdownURL(for: meeting.id))
     }
 
+    /// The id guard matters because the view is reused across selections: a save triggered while
+    /// the selection is already moving must not write the previous meeting's text onto the new one.
     private func saveTitle() {
+        guard editingMeetingID == meeting.id else { return }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != meeting.title else { return }
+
         var updated = meeting
-        updated.title = title
+        updated.title = trimmed
         controller.store.save(updated)
     }
 

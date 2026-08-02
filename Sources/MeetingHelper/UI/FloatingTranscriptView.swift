@@ -61,7 +61,7 @@ struct FloatingTranscriptView: View {
             }
 
             if let session = controller.session {
-                Text(Self.format(session.elapsed))
+                Text(session.elapsed.clockString)
                     .font(.system(size: 11).monospacedDigit())
                     .foregroundStyle(.secondary)
 
@@ -119,15 +119,6 @@ struct FloatingTranscriptView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    static func format(_ interval: TimeInterval) -> String {
-        let total = Int(interval)
-        let hours = total / 3600
-        let minutes = (total % 3600) / 60
-        let seconds = total % 60
-        return hours > 0
-            ? String(format: "%d:%02d:%02d", hours, minutes, seconds)
-            : String(format: "%02d:%02d", minutes, seconds)
-    }
 }
 
 private struct BottomResizeHandle: NSViewRepresentable {
