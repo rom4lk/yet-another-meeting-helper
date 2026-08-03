@@ -133,16 +133,3 @@ available under App Sandbox.
 
 - `⌥⌘R` — start/stop recording
 - `⌥⌘T` — show/hide the floating panel
-
-## What has been verified, and what has not
-
-Verified in a live Zoom meeting: detection of the conference start and end, automatic start and stop
-of recording, the microphone track (a real signal in the file), the mixdown, saving metadata.
-
-Not verified: the system audio track — in the test meeting the other participants stayed silent, and
-`system.wav` came out as digital silence. That recording cannot tell "nobody spoke" apart from "no
-permission"; for that case the interface has a warning that appears if the tap hands back zeros for
-20 seconds.
-
-Transcription has not been verified either: the test meeting lasted 20 seconds, and the selected
-model did not finish downloading in that time. Model downloads are one-off.

@@ -144,6 +144,93 @@ final class ICloudMeetingSyncTests: XCTestCase {
         ))
     }
 
+    /// Recognition can be re-run over an existing meeting, which rewrites the transcript and
+    /// nothing else. Comparing only `meeting.json` would leave the two copies equal forever.
+    func testTranscriptChangeReachesTheOtherSideWithoutAMetadataRewrite() async throws {
+        let meetingID = UUID()
+        let meeting = try writeMeeting(
+            id: meetingID,
+            title: "Unchanged",
+            startedAt: Date(),
+            to: localMeetingsRoot
+        )
+        try writeMeeting(
+            id: meetingID,
+            title: "Unchanged",
+            startedAt: meeting.startedAt,
+            to: remoteMeetingsRoot
+        )
+
+        let shared = Date(timeIntervalSince1970: 1_000)
+        for root in [localMeetingsRoot!, remoteMeetingsRoot] {
+            let directory = root.appendingPathComponent(meetingID.uuidString)
+            for name in ["meeting.json", "mix.m4a"] {
+                try setModificationDate(shared, of: directory.appendingPathComponent(name))
+            }
+        }
+        let transcript = localMeetingsRoot
+            .appendingPathComponent(meetingID.uuidString)
+            .appendingPathComponent("transcript.json")
+        try Data("[]".utf8).write(to: transcript)
+        try setModificationDate(shared.addingTimeInterval(10), of: transcript)
+
+        let result = try await makeEngine().synchronize(limit: .unlimited, folderURL: containerRoot)
+
+        XCTAssertEqual(result, .synchronized(localLibraryChanged: false))
+        XCTAssertEqual(
+            try Data(contentsOf: remoteMeetingsRoot
+                .appendingPathComponent(meetingID.uuidString)
+                .appendingPathComponent("transcript.json")),
+            Data("[]".utf8)
+        )
+    }
+
+    func testEditedTitleDoesNotCopyTheRecordingAgain() async throws {
+        var meeting = try writeMeeting(title: "Before", startedAt: Date(), to: localMeetingsRoot)
+        let engine = makeEngine()
+        _ = try await engine.synchronize(limit: .unlimited, folderURL: containerRoot)
+
+        let remoteDirectory = remoteMeetingsRoot.appendingPathComponent(meeting.id.uuidString)
+        let audio = try fileIdentity(of: remoteDirectory.appendingPathComponent("mix.m4a"))
+        let metadata = try fileIdentity(of: remoteDirectory.appendingPathComponent("meeting.json"))
+
+        meeting.title = "After"
+        try writeMetadata(meeting, to: localMeetingsRoot, modifiedAt: Date().addingTimeInterval(10))
+
+        _ = try await engine.synchronize(limit: .unlimited, folderURL: containerRoot)
+
+        XCTAssertEqual(try readMeeting(id: meeting.id, from: remoteMeetingsRoot).title, "After")
+        XCTAssertEqual(
+            try fileIdentity(of: remoteDirectory.appendingPathComponent("mix.m4a")),
+            audio,
+            "The recording was copied again although only the title changed"
+        )
+        XCTAssertNotEqual(
+            try fileIdentity(of: remoteDirectory.appendingPathComponent("meeting.json")),
+            metadata
+        )
+    }
+
+    func testFileRemovedFromTheSourceDisappearsFromTheMirror() async throws {
+        let meeting = try writeMeeting(title: "Trimmed", startedAt: Date(), to: localMeetingsRoot)
+        let engine = makeEngine()
+        _ = try await engine.synchronize(limit: .unlimited, folderURL: containerRoot)
+
+        try FileManager.default.removeItem(at: localMeetingsRoot
+            .appendingPathComponent(meeting.id.uuidString)
+            .appendingPathComponent("mix.m4a"))
+        try writeMetadata(meeting, to: localMeetingsRoot, modifiedAt: Date().addingTimeInterval(10))
+
+        _ = try await engine.synchronize(limit: .unlimited, folderURL: containerRoot)
+
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: remoteMeetingsRoot
+                .appendingPathComponent(meeting.id.uuidString)
+                .appendingPathComponent("mix.m4a")
+                .path
+        ))
+    }
+
     func testMissingSyncFolderIsUnavailable() async throws {
         try FileManager.default.removeItem(at: containerRoot)
         let engine = makeEngine()
@@ -181,14 +268,32 @@ final class ICloudMeetingSyncTests: XCTestCase {
         let directory = root.appendingPathComponent(id.uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        try encoder.encode(meeting).write(
-            to: directory.appendingPathComponent("meeting.json"),
-            options: .atomic
-        )
+        try writeMetadata(meeting, to: root)
         try Data("audio".utf8).write(to: directory.appendingPathComponent("mix.m4a"))
         return meeting
+    }
+
+    private func writeMetadata(_ meeting: Meeting, to root: URL, modifiedAt: Date? = nil) throws {
+        let url = root
+            .appendingPathComponent(meeting.id.uuidString, isDirectory: true)
+            .appendingPathComponent("meeting.json")
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(meeting).write(to: url, options: .atomic)
+        if let modifiedAt {
+            try setModificationDate(modifiedAt, of: url)
+        }
+    }
+
+    private func setModificationDate(_ date: Date, of url: URL) throws {
+        try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: url.path)
+    }
+
+    /// Inode number: a file that was copied again is a different one even when the bytes match.
+    private func fileIdentity(of url: URL) throws -> Int {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        return try XCTUnwrap(attributes[.systemFileNumber] as? Int)
     }
 
     private func readMeeting(id: UUID, from root: URL) throws -> Meeting {

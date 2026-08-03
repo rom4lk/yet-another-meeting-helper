@@ -93,6 +93,35 @@ final class AudioTrackWriterTests: XCTestCase {
         XCTAssertEqual(duration, 4.1, accuracy: 0.001)
     }
 
+    /// The capture callbacks hold the writer for as long as Core Audio holds their blocks, so the
+    /// track has to be complete when `finish()` returns rather than when the writer is released.
+    func testTrackIsReadableWhileTheWriterIsStillAlive() throws {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("wav")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        let format = AudioTrackWriter.targetFormat
+        let input = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1_600))
+        input.frameLength = 1_600
+        try XCTUnwrap(input.floatChannelData?[0]).update(repeating: 0.25, count: 1_600)
+
+        let writer = try AudioTrackWriter(
+            url: outputURL,
+            sourceFormat: format,
+            label: "close-test",
+            timelineStartUptime: 100,
+            onSamples: { _ in }
+        )
+
+        writer.append(input, capturedAtUptime: 100.1)
+        writer.finish()
+
+        let file = try AVAudioFile(forReading: outputURL)
+        XCTAssertEqual(file.length, 1_600)
+        withExtendedLifetime(writer) {}
+    }
+
     func testConvertsBuffersAfterFormatChange() throws {
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)

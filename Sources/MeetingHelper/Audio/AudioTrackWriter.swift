@@ -25,7 +25,9 @@ final class AudioTrackWriter: @unchecked Sendable {
     private static let interruptionGapThreshold: TimeInterval = 1
 
     private let queue: DispatchQueue
-    private let file: AVAudioFile
+    /// Released by `finish()` rather than by deinit: `AVAudioFile` only writes the WAV header on
+    /// deallocation, and the caller reads the finished track straight away.
+    private var file: AVAudioFile?
     private var converter: AVAudioConverter
     private let target = AudioTrackWriter.targetFormat
     private let timelineStartUptime: TimeInterval
@@ -82,8 +84,14 @@ final class AudioTrackWriter: @unchecked Sendable {
         }
     }
 
+    /// Stops accepting buffers and closes the track. The file is complete and readable once this
+    /// returns — waiting for the writer itself to be released would leave the WAV header stale for
+    /// as long as a capture callback still holds a reference to it.
     func finish() {
-        queue.sync { finished = true }
+        queue.sync {
+            finished = true
+            file = nil
+        }
     }
 
     private func process(_ buffer: AVAudioPCMBuffer, bufferStartUptime: TimeInterval) {
@@ -160,6 +168,7 @@ final class AudioTrackWriter: @unchecked Sendable {
 
     private func write(_ samples: [Float]) {
         guard !samples.isEmpty,
+              let file,
               let output = AVAudioPCMBuffer(
                   pcmFormat: target,
                   frameCapacity: AVAudioFrameCount(samples.count)

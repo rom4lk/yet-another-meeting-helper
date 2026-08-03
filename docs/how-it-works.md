@@ -26,6 +26,13 @@ Browser meetings do not have an equivalent helper process. Meeting Helper theref
 microphone activity and a window title that looks like Google Meet. Without Accessibility access,
 browser meeting detection is unavailable, while Zoom detection continues to work.
 
+Stopping a recording drains the transcription backlog and writes the mixdown, which can take a
+minute on a long meeting. A meeting detected in that window is remembered and started once the
+previous session is gone. Dropping it instead would lose it for good: the detector has already
+recorded it as the current meeting and never reports the same start twice. The remembered meeting is
+started only if the detector still reports it as running, so a short call that begins and ends inside
+that window is not recorded after the fact.
+
 ## Audio capture and storage
 
 The microphone goes through an `AVAudioEngine` tap. When the input device changes, the engine is
@@ -70,10 +77,22 @@ are removed from the sync folder, while local copies are retained. A meeting pre
 remote side is downloaded when it belongs to the retained set.
 
 Meeting UUIDs prevent independently recorded meetings from colliding. If the same meeting changes
-on two Macs, the copy with the newest metadata modification date replaces the other complete directory.
+on two Macs, the newer side wins, where "newer" is the most recent modification date among the files
+in the directory rather than the metadata alone — a transcript can change while `meeting.json` stays
+exactly as it was. The winning side is then mirrored file by file: only files whose size or
+modification date differ are copied, and files the source no longer has are removed. A meeting
+directory is mostly audio that never changes once the recording is saved, so editing a title
+transfers a few hundred bytes instead of the whole recording. Each file is staged on the destination
+volume and installed in one step, so no file is ever observed half written.
+
 App-initiated deletion creates a permanent marker before removing the synchronized copy; this keeps
 an offline Mac from uploading an old local copy again later. Turning synchronization off stops
 reconciliation but deliberately leaves the current contents of the selected folder unchanged.
+
+Reconciliation runs on a private serial queue rather than on Swift's cooperative thread pool. The
+copies can block for minutes on a cold iCloud folder, and that pool holds only a handful of threads
+shared with transcription. The queue being serial is also what keeps a recorded deletion from
+interleaving with a reconciliation already in progress.
 
 This feature is synchronization, not an independent backup. The selected provider must have enough
 space for the audio files, and manually editing or deleting files inside the sync folder can bypass

@@ -38,6 +38,8 @@ final class AppController: ObservableObject {
     private var storeObserver: AnyCancellable?
     private var iCloudSyncObserver: AnyCancellable?
     private var hasBootstrapped = false
+    /// A meeting detected while the previous recording was still being finalised.
+    private var pendingStart: DetectedMeeting?
 
     var isRecording: Bool { session != nil }
     var isPanelVisible: Bool { panelController.isVisible }
@@ -315,6 +317,14 @@ final class AppController: ObservableObject {
     }
 
     private func startRecording(for meeting: DetectedMeeting) {
+        // Stopping the previous recording drains the transcription backlog and writes the mixdown,
+        // which can take a minute. Dropping a meeting detected in that window would lose it for
+        // good: the detector has already recorded it as current and never fires `onStart` for it
+        // again. Remember it instead and start once the previous session is gone.
+        guard !isStopping else {
+            pendingStart = meeting
+            return
+        }
         guard session == nil else { return }
 
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
@@ -365,7 +375,18 @@ final class AppController: ObservableObject {
                 self.detector.clearCurrent()
             }
             self.hidePanel()
+            self.startPendingMeetingIfNeeded()
         }
+    }
+
+    /// Picks up a meeting that was detected while the previous recording was still stopping.
+    /// The detector is the authority on whether it is still running: a short call can begin and
+    /// end inside that window, and its `onStop` was swallowed by the stop already in flight.
+    private func startPendingMeetingIfNeeded() {
+        guard let pendingStart else { return }
+        self.pendingStart = nil
+        guard detector.current == pendingStart else { return }
+        startRecording(for: pendingStart)
     }
 
     // MARK: - Floating panel

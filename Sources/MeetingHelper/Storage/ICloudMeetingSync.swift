@@ -1,13 +1,38 @@
 import Foundation
+import os
 
 enum ICloudMeetingSyncOutcome: Equatable {
     case synchronized(localLibraryChanged: Bool)
     case unavailable
 }
 
+/// Cancellation that survives leaving the cooperative thread pool.
+///
+/// Synchronisation runs on a private queue, where `Task.isCancelled` always reads false, so the
+/// calling task's cancellation is mirrored into this flag for the work to poll instead.
+private final class CancellationFlag: Sendable {
+    private let cancelled = OSAllocatedUnfairLock(initialState: false)
+
+    func cancel() {
+        cancelled.withLock { $0 = true }
+    }
+
+    func check() throws {
+        if cancelled.withLock({ $0 }) { throw CancellationError() }
+    }
+}
+
 /// Mirrors complete, finished meeting directories into a user-selected sync folder, typically in
 /// iCloud Drive. Local storage remains the working copy so recording never depends on the network.
-actor ICloudMeetingSyncEngine {
+///
+/// The work is file I/O that can block for minutes on a cold iCloud folder, so it runs on a
+/// private serial queue instead of Swift's cooperative pool, where it would hold on to one of the
+/// few threads shared with transcription. The queue being serial keeps a recorded deletion from
+/// interleaving with a reconciliation.
+///
+/// `@unchecked Sendable`: the stored objects below are immutable references touched only from
+/// that queue.
+final class ICloudMeetingSyncEngine: @unchecked Sendable {
     private struct Record {
         let meeting: Meeting
         let directory: URL
@@ -18,6 +43,7 @@ actor ICloudMeetingSyncEngine {
     private let localTombstonesRoot: URL
     private let coordinatesRemoteAccess: Bool
     private let fileManager = FileManager.default
+    private let queue = DispatchQueue(label: "com.kovalev.MeetingHelper.sync", qos: .utility)
 
     private let decoder: JSONDecoder = {
         let decoder = JSONDecoder()
@@ -35,19 +61,54 @@ actor ICloudMeetingSyncEngine {
         self.coordinatesRemoteAccess = coordinatesRemoteAccess
     }
 
-    func recordDeletion(of meetingID: UUID) throws {
-        try fileManager.createDirectory(at: localTombstonesRoot, withIntermediateDirectories: true)
-        try Data().write(to: tombstoneURL(for: meetingID, in: localTombstonesRoot), options: .atomic)
+    func recordDeletion(of meetingID: UUID) async throws {
+        try await onQueue { _ in
+            try self.fileManager.createDirectory(
+                at: self.localTombstonesRoot,
+                withIntermediateDirectories: true
+            )
+            try Data().write(
+                to: self.tombstoneURL(for: meetingID, in: self.localTombstonesRoot),
+                options: .atomic
+            )
+        }
     }
 
     func synchronize(
         limit: AppSettings.ICloudSyncLimit,
         folderURL: URL
+    ) async throws -> ICloudMeetingSyncOutcome {
+        try await onQueue { cancellation in
+            try self.synchronize(limit: limit, folderURL: folderURL, cancellation: cancellation)
+        }
+    }
+
+    /// Runs `body` on the private queue, mirroring the calling task's cancellation into a flag the
+    /// work can poll between steps.
+    private func onQueue<Value: Sendable>(
+        _ body: @escaping @Sendable (CancellationFlag) throws -> Value
+    ) async throws -> Value {
+        let cancellation = CancellationFlag()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                queue.async {
+                    continuation.resume(with: Result { try body(cancellation) })
+                }
+            }
+        } onCancel: {
+            cancellation.cancel()
+        }
+    }
+
+    private func synchronize(
+        limit: AppSettings.ICloudSyncLimit,
+        folderURL: URL,
+        cancellation: CancellationFlag
     ) throws -> ICloudMeetingSyncOutcome {
         guard limit != .disabled else {
             return .synchronized(localLibraryChanged: false)
         }
-        try Task.checkCancellation()
+        try cancellation.check()
 
         var isDirectory: ObjCBool = false
         guard folderURL.isFileURL,
@@ -69,9 +130,10 @@ actor ICloudMeetingSyncEngine {
 
         let tombstoneResult = try synchronizeTombstones(
             remoteMeetingsRoot: remoteMeetingsRoot,
-            remoteTombstonesRoot: remoteTombstonesRoot
+            remoteTombstonesRoot: remoteTombstonesRoot,
+            cancellation: cancellation
         )
-        try Task.checkCancellation()
+        try cancellation.check()
 
         var localRecords = records(in: localMeetingsRoot, coordinateReads: false)
         var remoteRecords = records(
@@ -90,13 +152,13 @@ actor ICloudMeetingSyncEngine {
         )
 
         for (meetingID, record) in remoteRecords where !retainedIDs.contains(meetingID) {
-            try Task.checkCancellation()
+            try cancellation.check()
             try removeRemoteItem(at: record.directory)
         }
 
         var localLibraryChanged = tombstoneResult.localLibraryChanged
         for meetingID in retainedIDs {
-            try Task.checkCancellation()
+            try cancellation.check()
             let local = localRecords[meetingID]
             let remote = remoteRecords[meetingID]
 
@@ -106,11 +168,12 @@ actor ICloudMeetingSyncEngine {
                     meetingID.uuidString,
                     isDirectory: true
                 )
-                try replaceDirectory(
+                try mirrorDirectory(
                     at: destination,
-                    with: local.directory,
+                    from: local.directory,
                     coordinateSourceRead: false,
-                    coordinateDestinationWrite: coordinatesRemoteAccess
+                    coordinateDestinationWrite: coordinatesRemoteAccess,
+                    cancellation: cancellation
                 )
 
             case (.none, .some(let remote)):
@@ -118,28 +181,31 @@ actor ICloudMeetingSyncEngine {
                     meetingID.uuidString,
                     isDirectory: true
                 )
-                try replaceDirectory(
+                try mirrorDirectory(
                     at: destination,
-                    with: remote.directory,
+                    from: remote.directory,
                     coordinateSourceRead: coordinatesRemoteAccess,
-                    coordinateDestinationWrite: false
+                    coordinateDestinationWrite: false,
+                    cancellation: cancellation
                 )
                 localLibraryChanged = true
 
             case (.some(let local), .some(let remote)):
                 if local.modifiedAt > remote.modifiedAt {
-                    try replaceDirectory(
+                    try mirrorDirectory(
                         at: remote.directory,
-                        with: local.directory,
+                        from: local.directory,
                         coordinateSourceRead: false,
-                        coordinateDestinationWrite: coordinatesRemoteAccess
+                        coordinateDestinationWrite: coordinatesRemoteAccess,
+                        cancellation: cancellation
                     )
                 } else if remote.modifiedAt > local.modifiedAt {
-                    try replaceDirectory(
+                    try mirrorDirectory(
                         at: local.directory,
-                        with: remote.directory,
+                        from: remote.directory,
                         coordinateSourceRead: coordinatesRemoteAccess,
-                        coordinateDestinationWrite: false
+                        coordinateDestinationWrite: false,
+                        cancellation: cancellation
                     )
                     localLibraryChanged = true
                 }
@@ -159,13 +225,14 @@ actor ICloudMeetingSyncEngine {
 
     private func synchronizeTombstones(
         remoteMeetingsRoot: URL,
-        remoteTombstonesRoot: URL
+        remoteTombstonesRoot: URL,
+        cancellation: CancellationFlag
     ) throws -> TombstoneResult {
         var localIDs = tombstoneIDs(in: localTombstonesRoot)
         let remoteIDs = tombstoneIDs(in: remoteTombstonesRoot)
 
         for meetingID in localIDs.subtracting(remoteIDs) {
-            try Task.checkCancellation()
+            try cancellation.check()
             try Data().write(
                 to: tombstoneURL(for: meetingID, in: remoteTombstonesRoot),
                 options: .atomic
@@ -173,7 +240,7 @@ actor ICloudMeetingSyncEngine {
         }
 
         for meetingID in remoteIDs.subtracting(localIDs) {
-            try Task.checkCancellation()
+            try cancellation.check()
             try Data().write(
                 to: tombstoneURL(for: meetingID, in: localTombstonesRoot),
                 options: .atomic
@@ -183,7 +250,7 @@ actor ICloudMeetingSyncEngine {
 
         var localLibraryChanged = false
         for meetingID in localIDs {
-            try Task.checkCancellation()
+            try cancellation.check()
             let localDirectory = localMeetingsRoot.appendingPathComponent(
                 meetingID.uuidString,
                 isDirectory: true
@@ -267,10 +334,20 @@ actor ICloudMeetingSyncEngine {
         }
     }
 
+    /// Newest modification date among the files in the directory. Reading `meeting.json` alone
+    /// would miss a transcript that changed while the metadata stayed exactly as it was, and the
+    /// two copies would then compare as equal forever.
     private func contentModificationDate(in directory: URL) -> Date {
-        let metadataURL = directory.appendingPathComponent("meeting.json")
-        let values = try? metadataURL.resourceValues(forKeys: [.contentModificationDateKey])
-        return values?.contentModificationDate ?? .distantPast
+        let files = (try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+
+        return files.reduce(Date.distantPast) { newest, file in
+            let values = try? file.resourceValues(forKeys: [.contentModificationDateKey])
+            return max(newest, values?.contentModificationDate ?? .distantPast)
+        }
     }
 
     private func readData(at url: URL, coordinated: Bool) -> Data? {
@@ -294,40 +371,122 @@ actor ICloudMeetingSyncEngine {
         return result
     }
 
-    private func replaceDirectory(
+    /// Brings `destination` in line with `source`, copying only the files that actually differ.
+    ///
+    /// A meeting directory is mostly audio that never changes once the recording is saved, so
+    /// replacing the directory as a whole would re-upload the entire recording every time a title
+    /// is edited. Writing the files in place also keeps the sync provider from seeing every file
+    /// as brand new.
+    private func mirrorDirectory(
         at destination: URL,
-        with source: URL,
+        from source: URL,
         coordinateSourceRead: Bool,
-        coordinateDestinationWrite: Bool
+        coordinateDestinationWrite: Bool,
+        cancellation: CancellationFlag
     ) throws {
-        let parent = destination.deletingLastPathComponent()
-        try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
-        let staging = parent.appendingPathComponent(".sync-\(UUID().uuidString)", isDirectory: true)
-        defer { try? fileManager.removeItem(at: staging) }
+        try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
 
         if coordinateSourceRead {
             if fileManager.isUbiquitousItem(at: source) {
                 try? fileManager.startDownloadingUbiquitousItem(at: source)
             }
             try coordinateReading(at: source) { coordinatedSource in
-                try fileManager.copyItem(at: coordinatedSource, to: staging)
+                try self.copyChangedFiles(
+                    from: coordinatedSource,
+                    to: destination,
+                    cancellation: cancellation
+                )
+            }
+        } else if coordinateDestinationWrite {
+            try coordinateWriting(at: destination, options: .forMerging) {
+                try self.copyChangedFiles(
+                    from: source,
+                    to: destination,
+                    cancellation: cancellation
+                )
             }
         } else {
-            try fileManager.copyItem(at: source, to: staging)
+            try copyChangedFiles(from: source, to: destination, cancellation: cancellation)
+        }
+    }
+
+    /// A meeting directory holds a flat set of files, so a shallow comparison covers all of it.
+    private func copyChangedFiles(
+        from source: URL,
+        to destination: URL,
+        cancellation: CancellationFlag
+    ) throws {
+        let sourceFiles = try fileManager.contentsOfDirectory(
+            at: source,
+            includingPropertiesForKeys: Array(Self.comparedResourceKeys),
+            options: [.skipsHiddenFiles]
+        )
+
+        for file in sourceFiles {
+            try cancellation.check()
+            let installed = destination.appendingPathComponent(file.lastPathComponent)
+            guard !isUnchanged(file, installed) else { continue }
+            try installFile(file, at: installed)
         }
 
-        let install = { try self.installStagedDirectory(staging, at: destination) }
-
-        if coordinateDestinationWrite {
-            let destinationExists = fileManager.fileExists(atPath: destination.path)
-            try coordinateWriting(
-                at: destinationExists ? destination : parent,
-                options: destinationExists ? .forReplacing : .forMerging,
-                accessor: install
-            )
-        } else {
-            try install()
+        // A file the source no longer has must disappear from the mirror as well.
+        let sourceNames = Set(sourceFiles.map(\.lastPathComponent))
+        let installedFiles = (try? fileManager.contentsOfDirectory(
+            at: destination,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        for file in installedFiles where !sourceNames.contains(file.lastPathComponent) {
+            try cancellation.check()
+            try fileManager.removeItem(at: file)
         }
+    }
+
+    private static let comparedResourceKeys: Set<URLResourceKey> = [
+        .contentModificationDateKey,
+        .fileSizeKey
+    ]
+
+    /// Size and modification date settle it: a file inside a meeting directory is written once and
+    /// afterwards replaced whole, never edited in place, and copying preserves both values.
+    private func isUnchanged(_ source: URL, _ destination: URL) -> Bool {
+        guard let sourceValues = try? source.resourceValues(forKeys: Self.comparedResourceKeys),
+              let destinationValues = try? destination.resourceValues(forKeys: Self.comparedResourceKeys),
+              let sourceSize = sourceValues.fileSize,
+              let destinationSize = destinationValues.fileSize,
+              let sourceDate = sourceValues.contentModificationDate,
+              let destinationDate = destinationValues.contentModificationDate
+        else { return false }
+
+        return sourceSize == destinationSize && sourceDate == destinationDate
+    }
+
+    /// Stages the copy on the destination's own volume first, so the visible file goes from the
+    /// old contents to the new one in a single step.
+    private func installFile(_ source: URL, at destination: URL) throws {
+        let staging = try fileManager.url(
+            for: .itemReplacementDirectory,
+            in: .userDomainMask,
+            appropriateFor: destination.deletingLastPathComponent(),
+            create: true
+        )
+        defer { try? fileManager.removeItem(at: staging) }
+
+        let staged = staging.appendingPathComponent(destination.lastPathComponent)
+        try fileManager.copyItem(at: source, to: staged)
+
+        guard fileManager.fileExists(atPath: destination.path) else {
+            try fileManager.moveItem(at: staged, to: destination)
+            return
+        }
+        // Without `.usingNewMetadataOnly` the installed file inherits the replaced file's
+        // modification date, and the next reconciliation would find the copy stale all over again.
+        _ = try fileManager.replaceItemAt(
+            destination,
+            withItemAt: staged,
+            backupItemName: nil,
+            options: [.usingNewMetadataOnly]
+        )
     }
 
     private func removeRemoteItem(at url: URL) throws {
@@ -341,27 +500,6 @@ actor ICloudMeetingSyncEngine {
             if self.fileManager.fileExists(atPath: url.path) {
                 try self.fileManager.removeItem(at: url)
             }
-        }
-    }
-
-    private func installStagedDirectory(_ staging: URL, at destination: URL) throws {
-        guard fileManager.fileExists(atPath: destination.path) else {
-            try fileManager.moveItem(at: staging, to: destination)
-            return
-        }
-
-        let backup = destination.deletingLastPathComponent()
-            .appendingPathComponent(".sync-backup-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.moveItem(at: destination, to: backup)
-        do {
-            try fileManager.moveItem(at: staging, to: destination)
-            try fileManager.removeItem(at: backup)
-        } catch {
-            if !fileManager.fileExists(atPath: destination.path),
-               fileManager.fileExists(atPath: backup.path) {
-                try? fileManager.moveItem(at: backup, to: destination)
-            }
-            throw error
         }
     }
 
