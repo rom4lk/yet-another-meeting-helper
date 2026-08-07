@@ -4,7 +4,7 @@ import Foundation
 
 /// Reads window titles of other apps through the Accessibility API.
 ///
-/// Used only to give a meeting a human-readable name and to tell a Google Meet tab apart from
+/// Used only to give a meeting a human-readable name and to tell a meeting tab apart from
 /// any other browser tab that happens to hold the microphone. Everything degrades gracefully
 /// when the permission is missing — detection still works, the title just becomes generic.
 enum WindowTitles {

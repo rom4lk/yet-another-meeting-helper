@@ -11,7 +11,7 @@ Meeting Helper combines three signals, from precise to general.
 |---|---|---|
 | Meeting process | Presence of `us.zoom.CptHost` | Zoom, native client |
 | Process audio activity | `kAudioProcessPropertyIsRunningInput` over a bundle ID family | The browser is holding the microphone |
-| Window title | Accessibility API | Distinguishes Google Meet from other tabs and provides the meeting title |
+| Window title | Accessibility API | Distinguishes a meeting tab from other tabs and provides the meeting title |
 
 Zoom spawns the `CptHost` helper process for the duration of a conference and terminates it when the
 user leaves. This gives the app a precise start and end signal, unlike general microphone activity,
@@ -23,8 +23,28 @@ in `runningApplications`, but no lifecycle notifications arrive for them. A live
 leaving a conference produced a notification for `us.zoom.xos` but not for `us.zoom.CptHost`.
 
 Browser meetings do not have an equivalent helper process. Meeting Helper therefore requires both
-microphone activity and a window title that looks like Google Meet. Without Accessibility access,
-browser meeting detection is unavailable, while Zoom detection continues to work.
+microphone activity and a window that one of the `BrowserMeetingService` entries claims. Without
+Accessibility access, browser meeting detection is unavailable, while Zoom detection continues to
+work.
+
+Each service is described by a title test and the host of its installed PWA:
+
+| Service | Window title | PWA host |
+|---|---|---|
+| Google Meet | Names Google Meet, or carries a meeting code such as `abc-defg-hij` | `meet.google.com` |
+| Ktalk | Ends with the client's own app name, which it emits untranslated in every locale | `ktalk.ru` and any subdomain of it, such as an organization's `example.ktalk.ru` |
+
+The Ktalk web client builds the document title as either its app name alone or
+`<page> — <app name>`, so that name is the only stable marker a title carries. It is anchored to the
+end of the title rather than searched for anywhere inside it, because as a bare substring the name
+also occurs inside unrelated words, and such a tab would then claim a browser that is holding the
+microphone for a real meeting elsewhere.
+
+A PWA window has no title to read: Chrome exposes neither `AXTitle` nor `AXDocument` for one. Its
+bundle records the URL it was installed from, so the host taken from `CrAppModeShortcutURL`
+identifies the service, while the Accessibility API only confirms that a real window exists.
+Subdomains match the configured host, which is what covers a Ktalk instance of an individual
+organization.
 
 Stopping a recording drains the transcription backlog and writes the mixdown, which can take a
 minute on a long meeting. A meeting detected in that window is remembered and started once the

@@ -6,14 +6,21 @@ struct DetectedMeeting: Equatable {
     enum Kind: String, Codable {
         case zoom
         case googleMeet
+        case ktalk
         case manual
 
         var displayName: String {
             switch self {
             case .zoom: return "Zoom"
             case .googleMeet: return "Google Meet"
+            case .ktalk: return "Ktalk"
             case .manual: return "Manual"
             }
+        }
+
+        /// Kinds that live in a browser tab and share the browser detection path.
+        var isBrowserMeeting: Bool {
+            self == .googleMeet || self == .ktalk
         }
     }
 
@@ -36,6 +43,38 @@ struct DetectedMeeting: Equatable {
     }
 }
 
+/// A conferencing service that runs inside a browser tab.
+///
+/// Such a service has no process of its own, so it is recognised by the title of the browser
+/// window, or — for an installed PWA window, which exposes no title — by the host its bundle was
+/// created from.
+struct BrowserMeetingService {
+    let kind: DetectedMeeting.Kind
+    /// Matched against a raw window title, browser name suffix included.
+    let matchesTitle: (String) -> Bool
+    /// Host recorded in the PWA bundle. Subdomains match too: Ktalk gives every organisation its
+    /// own one, and Meet is reached through a single host that has none in use.
+    let pwaHost: String
+
+    static let all: [BrowserMeetingService] = [
+        BrowserMeetingService(
+            kind: .googleMeet,
+            matchesTitle: MeetingDetector.looksLikeGoogleMeet,
+            pwaHost: "meet.google.com"
+        ),
+        BrowserMeetingService(
+            kind: .ktalk,
+            matchesTitle: MeetingDetector.looksLikeKtalk,
+            pwaHost: "ktalk.ru"
+        )
+    ]
+
+    func matches(pwaHost host: String) -> Bool {
+        host.localizedCaseInsensitiveCompare(pwaHost) == .orderedSame
+            || host.lowercased().hasSuffix("." + pwaHost.lowercased())
+    }
+}
+
 /// Watches the system for meetings that have actually *started*.
 ///
 /// Zoom is detected by its meeting helper process `us.zoom.CptHost`, which the client spawns on
@@ -47,7 +86,7 @@ struct DetectedMeeting: Equatable {
 /// is driven by one poll.
 ///
 /// Browser meetings have no such process, so there we combine two weaker signals: the browser
-/// holding the microphone, and a window title that looks like Google Meet.
+/// holding the microphone, and a window that one of the `BrowserMeetingService` entries claims.
 @MainActor
 final class MeetingDetector: ObservableObject {
     static let zoomMeetingBundleID = "us.zoom.CptHost"
@@ -148,37 +187,37 @@ final class MeetingDetector: ObservableObject {
     // MARK: - Browser meetings
 
     private func pollBrowsers() {
-        guard current == nil || current?.kind == .googleMeet else { return }
+        guard current == nil || current?.kind.isBrowserMeeting == true else { return }
 
         var detected: DetectedMeeting?
 
-        for browser in MeetingApp.browsers {
+        search: for browser in MeetingApp.browsers {
             guard AudioProcessLookup.isCapturingInput(prefixes: browser.audioBundleIDPrefixes) else { continue }
 
             for app in browser.runningApplications {
-                guard let title = googleMeetTitle(for: app) else { continue }
+                for service in BrowserMeetingService.all {
+                    guard let title = meetingTitle(for: app, service: service) else { continue }
 
-                detected = DetectedMeeting(
-                    kind: .googleMeet,
-                    title: Self.cleanMeetTitle(title),
-                    audioPrefixes: browser.audioBundleIDPrefixes,
-                    detectedAt: Date()
-                )
-                break
+                    detected = DetectedMeeting(
+                        kind: service.kind,
+                        title: Self.cleanMeetTitle(title),
+                        audioPrefixes: browser.audioBundleIDPrefixes,
+                        detectedAt: Date()
+                    )
+                    break search
+                }
             }
-
-            if detected != nil { break }
         }
 
-        if detected != nil {
+        if let detected {
             browserNegativeTicks = 0
             browserPositiveTicks += 1
-            if current == nil, browserPositiveTicks >= browserStartTicks, let detected {
+            if current == nil, browserPositiveTicks >= browserStartTicks {
                 begin(detected)
             }
         } else {
             browserPositiveTicks = 0
-            guard current?.kind == .googleMeet else { return }
+            guard current?.kind.isBrowserMeeting == true else { return }
             browserNegativeTicks += 1
             if browserNegativeTicks >= browserStopTicks {
                 end()
@@ -186,22 +225,23 @@ final class MeetingDetector: ObservableObject {
         }
     }
 
-    private func googleMeetTitle(for app: NSRunningApplication) -> String? {
+    private func meetingTitle(for app: NSRunningApplication, service: BrowserMeetingService) -> String? {
         let titles = WindowTitles.titles(forPID: app.processIdentifier)
-        if let title = titles.first(where: Self.looksLikeGoogleMeet) {
+        if let title = titles.first(where: service.matchesTitle) {
             return title
         }
 
         // Chrome PWA windows expose neither AXTitle nor AXDocument. Their bundle records the
         // installed app URL, so use that as the identity signal while AX confirms a real window.
-        guard current?.kind == .googleMeet || app.isActive else { return nil }
+        guard current?.kind == service.kind || app.isActive else { return nil }
         guard WindowTitles.hasWindows(forPID: app.processIdentifier) else { return nil }
         guard let bundleURL = app.bundleURL,
               let shortcutURL = Bundle(url: bundleURL)?.object(forInfoDictionaryKey: "CrAppModeShortcutURL") as? String,
-              URL(string: shortcutURL)?.host?.localizedCaseInsensitiveCompare("meet.google.com") == .orderedSame
+              let host = URL(string: shortcutURL)?.host,
+              service.matches(pwaHost: host)
         else { return nil }
 
-        return app.localizedName ?? "Google Meet"
+        return app.localizedName ?? service.kind.displayName
     }
 
     /// Google Meet window titles look like `Meet — abc-defg-hij` or `<name> - Google Meet`.
@@ -210,6 +250,26 @@ final class MeetingDetector: ObservableObject {
         guard title.localizedCaseInsensitiveContains("Meet") else { return false }
         return title.range(of: "[a-z]{3}-[a-z]{4}-[a-z]{3}", options: [.regularExpression, .caseInsensitive]) != nil
     }
+
+    /// The Ktalk web client builds every document title as either its own app name alone or
+    /// `<page> — <app name>`, and it ships that name untranslated in all of its locales, so the
+    /// name is the only stable marker a title carries. It is a string read from a page and matched
+    /// against, not interface text — it must stay as the client emits it.
+    ///
+    /// The name is anchored to the end of the title rather than searched for anywhere in it: as a
+    /// bare substring it also occurs inside unrelated Russian words, and an unrelated tab could
+    /// then claim a browser that holds the microphone for a real meeting.
+    static func looksLikeKtalk(_ title: String) -> Bool {
+        let cleaned = cleanMeetTitle(title)
+        if cleaned.localizedCaseInsensitiveCompare(ktalkAppName) == .orderedSame { return true }
+        return titleSeparators.contains { cleaned.hasSuffix(" \($0) \(ktalkAppName)") }
+    }
+
+    private static let ktalkAppName = "Толк"
+
+    /// Separators seen between a title and the name appended after it. Which one appears varies by
+    /// browser, by macOS version and — for Ktalk — by what the web client itself emits.
+    private static let titleSeparators = ["-", "—", "–"]
 
     /// Browsers append their own name to the window title; strip it so the meeting keeps the
     /// tab's name.
@@ -223,7 +283,7 @@ final class MeetingDetector: ObservableObject {
             .reduce(into: "") { $0.unicodeScalars.append($1) }
 
         for name in MeetingApp.browsers.map(\.displayName) {
-            for separator in ["-", "—", "–"] {
+            for separator in titleSeparators {
                 let suffix = " \(separator) \(name)"
                 if normalized.hasSuffix(suffix) {
                     return String(normalized.dropLast(suffix.count))

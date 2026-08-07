@@ -21,7 +21,7 @@ struct SettingsView: View {
                         controller.detector.autoDetectionEnabled = $0
                     }
                 ))
-                Text("Zoom is detected by its meeting helper process, Google Meet — by the browser microphone and the tab title.")
+                Text("Zoom is detected by its meeting helper process, Google Meet and Ktalk — by the browser microphone and the tab title.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

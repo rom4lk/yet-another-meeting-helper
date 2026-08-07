@@ -249,7 +249,7 @@ private struct PermissionsBanner: View {
                 }
             }
             if !controller.accessibilityGranted {
-                row("Without Accessibility, meeting titles and Google Meet stay invisible", action: "Open") {
+                row("Without Accessibility, meeting titles and browser meetings stay invisible", action: "Open") {
                     controller.requestAccessibilityPermission()
                 }
             }

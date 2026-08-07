@@ -124,7 +124,7 @@ struct MeetingDetailView: View {
     private var icon: String {
         switch meeting.kind {
         case .zoom: return "video.fill"
-        case .googleMeet: return "globe"
+        case .googleMeet, .ktalk: return "globe"
         case .manual: return "hand.tap.fill"
         }
     }

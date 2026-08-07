@@ -5,7 +5,8 @@ and stop recording automatically, and keep a live transcript visible while you w
 
 ## Features
 
-- Automatic meeting detection for Zoom and Google Meet in Chrome, Arc, Edge, and Safari.
+- Automatic meeting detection for Zoom, and for Google Meet and Ktalk in Chrome, Arc, Edge, and
+  Safari.
 - Separate microphone and meeting-audio tracks, labelled as "Me" and "Others" in the transcript.
 - On-device transcription with WhisperKit or multilingual Parakeet TDT v3.
 - An optional always-on-top transcript panel with real-time preview updates.
@@ -107,8 +108,9 @@ microphone, play some system audio, stop the recording, and verify both tracks i
 
 ## How it works
 
-Meeting Helper detects Zoom directly and identifies Google Meet calls in Chrome, Arc, Edge, and
-Safari using microphone activity and window titles.
+Meeting Helper detects Zoom directly and identifies Google Meet and Ktalk calls in Chrome, Arc,
+Edge, and Safari using microphone activity and window titles. Ktalk is recognized on any host,
+including an organization's own one such as `example.ktalk.ru`.
 
 Automatic recordings capture audio only from the detected meeting app. Manual recordings capture
 all system audio. The microphone and meeting audio are stored separately, which lets the transcript
@@ -124,7 +126,7 @@ deduplication reduce speaker leakage and duplicate lines. See
 |---|---|---|
 | Microphone | own track | recording does not start |
 | System audio | the other participants' track | silence in the second track |
-| Accessibility | window titles | no meeting titles and no Google Meet detection |
+| Accessibility | window titles | no meeting titles and no browser meeting detection |
 
 The app is deliberately **not sandboxed**: process-bound taps and the Accessibility API are not
 available under App Sandbox.

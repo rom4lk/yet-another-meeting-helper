@@ -73,4 +73,41 @@ final class MeetingDetectorTests: XCTestCase {
         // "Meet" alone is not enough without a meeting code.
         XCTAssertFalse(MeetingDetector.looksLikeGoogleMeet("Meet the team — Notion"))
     }
+
+    // MARK: - Ktalk recognition
+
+    /// The web client leaves a page title empty on the conference route, and its own name is then
+    /// the whole document title.
+    func testRecognizesTitlesThatAreTheAppNameAlone() {
+        XCTAssertTrue(MeetingDetector.looksLikeKtalk("Толк"))
+        XCTAssertTrue(MeetingDetector.looksLikeKtalk("Толк - Google Chrome"))
+        XCTAssertTrue(MeetingDetector.looksLikeKtalk("Толк — Arc"))
+    }
+
+    func testRecognizesTitlesEndingWithTheAppName() {
+        XCTAssertTrue(MeetingDetector.looksLikeKtalk("Weekly sync — Толк"))
+        XCTAssertTrue(MeetingDetector.looksLikeKtalk("Weekly sync — Толк - Google Chrome"))
+    }
+
+    /// The app name occurs inside ordinary Russian words, and a tab holding one must not claim a
+    /// browser that is in a meeting elsewhere.
+    func testRejectsTitlesMerelyContainingTheAppName() {
+        XCTAssertFalse(MeetingDetector.looksLikeKtalk("Толкование снов — Wikipedia"))
+        XCTAssertFalse(MeetingDetector.looksLikeKtalk("Толк для начинающих"))
+        XCTAssertFalse(MeetingDetector.looksLikeKtalk("Inbox — Gmail"))
+    }
+
+    // MARK: - PWA hosts
+
+    func testMatchesPWAHostAndItsSubdomains() {
+        let ktalk = BrowserMeetingService.all.first { $0.kind == .ktalk }!
+        XCTAssertTrue(ktalk.matches(pwaHost: "ktalk.ru"))
+        XCTAssertTrue(ktalk.matches(pwaHost: "tbank.ktalk.ru"))
+        XCTAssertFalse(ktalk.matches(pwaHost: "notktalk.ru"))
+        XCTAssertFalse(ktalk.matches(pwaHost: "ktalk.ru.example.com"))
+
+        let meet = BrowserMeetingService.all.first { $0.kind == .googleMeet }!
+        XCTAssertTrue(meet.matches(pwaHost: "meet.google.com"))
+        XCTAssertFalse(meet.matches(pwaHost: "mail.google.com"))
+    }
 }
