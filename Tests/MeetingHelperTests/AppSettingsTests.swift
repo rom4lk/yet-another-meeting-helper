@@ -55,6 +55,30 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertFalse(settings.realtimeTranscriptEnabled)
     }
 
+    func testMySpeechInLiveTranscriptPersists() {
+        for showsMySpeech in [false, true] {
+            let suiteName = "AppSettingsTests.\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suiteName)!
+            defer { defaults.removePersistentDomain(forName: suiteName) }
+
+            let settings = AppSettings(defaults: defaults)
+            settings.liveTranscriptShowsMySpeech = showsMySpeech
+
+            let restored = AppSettings(defaults: defaults)
+            XCTAssertEqual(restored.liveTranscriptShowsMySpeech, showsMySpeech)
+        }
+    }
+
+    func testMySpeechInLiveTranscriptDefaultsToShown() {
+        let suiteName = "AppSettingsTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = AppSettings(defaults: defaults)
+
+        XCTAssertTrue(settings.liveTranscriptShowsMySpeech)
+    }
+
     func testMinimumRecordingDurationPersists() {
         let suiteName = "AppSettingsTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

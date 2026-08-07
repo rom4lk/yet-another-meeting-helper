@@ -145,6 +145,17 @@ tracks and keeps the cleaner system-audio copy when both contain the same speech
 that passed the echo gate, while the echo gate handles cases where the two tracks produce different
 words for the same speech. Deduplication is enabled by default and can be disabled in Settings.
 
+### Hiding your own speech
+
+The live transcript can leave the microphone lines out and show only the other participants. This
+affects the display alone: the microphone is still captured, recognized, and written to the saved
+transcript, so switching the lines back on brings the hidden ones with it.
+
+Unlike the other transcript options, this switch is read every time the live views redraw instead of
+being captured when the recording starts, which is what lets it be flipped mid-call. It is available
+in Settings, in the header of the recording window, and in the floating panel header, where the eye
+icon next to "Me" also shows the current state.
+
 ## Transcription
 
 Transcription uses Core ML through either WhisperKit or FluidAudio. Settings offers Whisper

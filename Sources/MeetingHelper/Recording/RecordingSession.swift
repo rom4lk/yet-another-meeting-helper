@@ -155,6 +155,16 @@ final class RecordingSession: ObservableObject {
         lines.sorted { $0.offset < $1.offset }
     }
 
+    /// What the live views show. Unlike the other transcript options, this one is read on every
+    /// access instead of being captured at init, so hiding or showing the microphone track takes
+    /// effect during the recording. Saving uses `sortedLines`, so hidden lines are still stored.
+    var visibleLines: [TranscriptLine] {
+        guard settings.liveTranscriptShowsMySpeech else {
+            return sortedLines.filter { $0.source != .me }
+        }
+        return sortedLines
+    }
+
     var echoGateEnabled: Bool {
         echoReference != nil
     }

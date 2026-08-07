@@ -11,10 +11,11 @@ struct FloatingTranscriptView: View {
             Divider()
 
             if let session = controller.session {
-                if session.sortedLines.isEmpty {
+                let lines = session.visibleLines
+                if lines.isEmpty {
                     placeholder(for: session)
                 } else {
-                    TranscriptView(lines: session.sortedLines, compact: true, autoScroll: true)
+                    TranscriptView(lines: lines, compact: true, autoScroll: true)
                 }
             } else {
                 Text("Not recording")
@@ -61,6 +62,8 @@ struct FloatingTranscriptView: View {
             }
 
             if let session = controller.session {
+                mySpeechToggle
+
                 Text(session.elapsed.clockString)
                     .font(.system(size: 11).monospacedDigit())
                     .foregroundStyle(.secondary)
@@ -86,6 +89,22 @@ struct FloatingTranscriptView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+
+    /// Hides or shows the microphone lines without touching what is being recorded and saved.
+    private var mySpeechToggle: some View {
+        let showsMySpeech = controller.settings.liveTranscriptShowsMySpeech
+        return Button {
+            controller.settings.liveTranscriptShowsMySpeech.toggle()
+        } label: {
+            Label("Me", systemImage: showsMySpeech ? "eye" : "eye.slash")
+                .font(.system(size: 11))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(showsMySpeech ? Color.secondary : Color.orange)
+        .help(showsMySpeech
+            ? "Hide your own speech in the live transcript. The saved transcript keeps it."
+            : "Show your own speech in the live transcript again")
     }
 
     @ViewBuilder

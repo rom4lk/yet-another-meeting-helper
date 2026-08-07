@@ -10,6 +10,8 @@ and stop recording automatically, and keep a live transcript visible while you w
 - Separate microphone and meeting-audio tracks, labelled as "Me" and "Others" in the transcript.
 - On-device transcription with WhisperKit or multilingual Parakeet TDT v3.
 - An optional always-on-top transcript panel with real-time preview updates.
+- Your own speech can be hidden from the live transcript at any time, including during a call. The
+  saved transcript keeps every line.
 - Echo filtering and transcript deduplication for cleaner speaker attribution.
 - Process-scoped audio capture for detected meetings, plus manual recording of all system audio.
 - Saved recordings, playback, transcripts, timestamps, and meeting metadata.
@@ -64,21 +66,14 @@ The project rejects builds made with `CODE_SIGNING_ALLOWED=NO`.
 
 ### Build and run from the terminal
 
-With `Config/LocalSigning.xcconfig` in place, generate, build, and run from the repository root:
+With `Config/LocalSigning.xcconfig` in place, run [run.sh](run.sh) from the repository root. It
+regenerates the Xcode project, builds the app, quits the running copy, and launches the new one:
 
 ```bash
-xcodegen generate &&
-xcodebuild \
-  -project MeetingHelper.xcodeproj \
-  -scheme MeetingHelper \
-  -configuration Debug \
-  -destination 'platform=macOS' \
-  -derivedDataPath .build \
-  -allowProvisioningUpdates \
-  build &&
-{ pkill -x MeetingHelper 2>/dev/null || true; } &&
-open .build/Build/Products/Debug/MeetingHelper.app
+./run.sh
 ```
+
+Pass `--release` to build the Release configuration instead of Debug.
 
 The Debug app is development-signed for local use. It is not Developer ID-signed or notarized for
 distribution. Meeting Helper rejects ad-hoc builds because their identity changes on every rebuild

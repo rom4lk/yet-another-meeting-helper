@@ -60,6 +60,11 @@ final class AppSettings: ObservableObject {
 
     @Published var autoDetectionEnabled: Bool { didSet { defaults.set(autoDetectionEnabled, forKey: Keys.autoDetection) } }
     @Published var liveTranscriptEnabled: Bool { didSet { defaults.set(liveTranscriptEnabled, forKey: Keys.liveTranscript) } }
+    /// Whether the live views show the microphone track. Off hides those lines while a recording
+    /// runs; the transcript is still recognized and saved in full.
+    @Published var liveTranscriptShowsMySpeech: Bool {
+        didSet { defaults.set(liveTranscriptShowsMySpeech, forKey: Keys.liveTranscriptShowsMySpeech) }
+    }
     @Published var realtimeTranscriptEnabled: Bool {
         didSet { defaults.set(realtimeTranscriptEnabled, forKey: Keys.realtimeTranscript) }
     }
@@ -83,6 +88,7 @@ final class AppSettings: ObservableObject {
     private enum Keys {
         static let autoDetection = "autoDetectionEnabled"
         static let liveTranscript = "liveTranscriptEnabled"
+        static let liveTranscriptShowsMySpeech = "liveTranscriptShowsMySpeech"
         static let realtimeTranscript = "realtimeTranscriptEnabled"
         static let transcriptDeduplication = "transcriptDeduplicationEnabled"
         static let echoGate = "echoGateEnabled"
@@ -99,6 +105,7 @@ final class AppSettings: ObservableObject {
         defaults.register(defaults: [
             Keys.autoDetection: true,
             Keys.liveTranscript: true,
+            Keys.liveTranscriptShowsMySpeech: true,
             Keys.realtimeTranscript: false,
             Keys.transcriptDeduplication: true,
             Keys.echoGate: true,
@@ -111,6 +118,7 @@ final class AppSettings: ObservableObject {
 
         autoDetectionEnabled = defaults.bool(forKey: Keys.autoDetection)
         liveTranscriptEnabled = defaults.bool(forKey: Keys.liveTranscript)
+        liveTranscriptShowsMySpeech = defaults.bool(forKey: Keys.liveTranscriptShowsMySpeech)
         realtimeTranscriptEnabled = defaults.bool(forKey: Keys.realtimeTranscript)
         transcriptDeduplicationEnabled = defaults.bool(forKey: Keys.transcriptDeduplication)
         echoGateEnabled = defaults.bool(forKey: Keys.echoGate)

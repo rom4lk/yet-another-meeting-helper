@@ -35,6 +35,7 @@ final class AppController: ObservableObject {
     private let panelController = FloatingPanelController()
     private var hotkeys: [GlobalHotkey] = []
     private var sessionObserver: AnyCancellable?
+    private var settingsObserver: AnyCancellable?
     private var storeObserver: AnyCancellable?
     private var iCloudSyncObserver: AnyCancellable?
     private var hasBootstrapped = false
@@ -48,6 +49,11 @@ final class AppController: ObservableObject {
         // MeetingStore is a nested ObservableObject, so its changes have to be forwarded
         // for views that observe only the controller.
         storeObserver = store.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        // Same for the settings, which the recording views read directly — a switch flipped
+        // during a recording has to redraw them.
+        settingsObserver = settings.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
         iCloudSyncObserver = iCloudSync.objectWillChange.sink { [weak self] _ in

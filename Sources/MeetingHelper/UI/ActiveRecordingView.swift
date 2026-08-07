@@ -9,11 +9,12 @@ struct ActiveRecordingView: View {
             header
             Divider()
 
-            if session.sortedLines.isEmpty {
+            let lines = session.visibleLines
+            if lines.isEmpty {
                 status
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                TranscriptView(lines: session.sortedLines, autoScroll: true)
+                TranscriptView(lines: lines, autoScroll: true)
             }
         }
     }
@@ -34,6 +35,11 @@ struct ActiveRecordingView: View {
                 Text(session.elapsed.clockString)
                     .font(.title3.monospacedDigit())
                     .foregroundStyle(.secondary)
+
+                Button(controller.settings.liveTranscriptShowsMySpeech ? "Hide my speech" : "Show my speech") {
+                    controller.settings.liveTranscriptShowsMySpeech.toggle()
+                }
+                .help("Hides or shows the microphone lines in the live transcript and in the floating panel. The saved transcript always keeps them.")
 
                 Button(controller.isPanelVisible ? "Hide panel" : "Show panel") {
                     controller.togglePanel()

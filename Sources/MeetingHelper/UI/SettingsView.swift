@@ -71,6 +71,16 @@ struct SettingsView: View {
                     set: { controller.setLiveTranscriptEnabled($0) }
                 ))
 
+                Toggle("Show my speech in the live transcript", isOn: Binding(
+                    get: { controller.settings.liveTranscriptShowsMySpeech },
+                    set: { controller.settings.liveTranscriptShowsMySpeech = $0 }
+                ))
+                .disabled(!controller.settings.liveTranscriptEnabled)
+
+                Text("Leaves the microphone lines out of the live transcript and the floating panel, which keeps only the other participants on screen. Audio and the saved transcript are unaffected, and the switch can be flipped during a recording from the recording window or the floating panel.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 Toggle("Update transcript while people are speaking", isOn: Binding(
                     get: { controller.settings.realtimeTranscriptEnabled },
                     set: { controller.settings.realtimeTranscriptEnabled = $0 }
