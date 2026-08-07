@@ -18,7 +18,12 @@ final class MeetingStoreTests: XCTestCase {
 
     func testSavedMeetingSurvivesAReload() {
         let store = MeetingStore(root: root)
-        let meeting = Meeting(title: "Weekly sync", kind: .zoom, duration: 42)
+        let meeting = Meeting(
+            title: "Weekly sync",
+            kind: .zoom,
+            duration: 42,
+            transcriptionModel: "openai_whisper-large-v3"
+        )
 
         store.save(meeting)
 
@@ -26,6 +31,7 @@ final class MeetingStoreTests: XCTestCase {
         XCTAssertEqual(reopened.meetings.map(\.id), [meeting.id])
         XCTAssertEqual(reopened.meetings.first?.title, "Weekly sync")
         XCTAssertEqual(reopened.meetings.first?.duration, 42)
+        XCTAssertEqual(reopened.meetings.first?.transcriptionModel, "openai_whisper-large-v3")
     }
 
     func testSavingAnExistingMeetingUpdatesItInPlace() {
@@ -109,6 +115,7 @@ final class MeetingStoreTests: XCTestCase {
 
         XCTAssertEqual(store.meetings.map(\.title), ["Legacy meeting"])
         XCTAssertEqual(store.meetings.first?.duration, 1800)
+        XCTAssertNil(store.meetings.first?.transcriptionModel)
     }
 
     func testMetadataWithUnknownMeetingKindStillDecodes() throws {

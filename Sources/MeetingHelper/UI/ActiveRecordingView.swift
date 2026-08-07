@@ -60,6 +60,12 @@ struct ActiveRecordingView: View {
             HStack(spacing: 20) {
                 Label("Microphone: \(session.microphoneDeviceName)", systemImage: "mic")
                 Label("Audio source: \(session.systemAudioSourceName)", systemImage: "speaker.wave.2")
+                if let model = session.transcriptionModel {
+                    Label(
+                        "Transcription: \(AppSettings.displayName(forModel: model))",
+                        systemImage: "waveform"
+                    )
+                }
                 echoGate
                 if let calendar = session.calendar {
                     CalendarParticipantsLabel(info: calendar)

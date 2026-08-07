@@ -66,7 +66,7 @@ and written separately:
 
 ```text
 ~/Library/Application Support/MeetingHelper/Meetings/<uuid>/
-    meeting.json     metadata
+    meeting.json     metadata, including the transcription model identifier
     mic.wav          my voice
     system.wav       the other participants' voices
     mix.m4a          mixdown for playback
@@ -181,6 +181,10 @@ Optional real-time updates recognize an expanding, overlapping audio snapshot ev
 Each result updates a preview line in place. After a pause, the full-utterance result replaces the
 preview, and only the final line is saved. This mode is disabled by default because it uses more
 processing power.
+
+The model selected when recording starts is stored with the meeting metadata. The active recording
+and saved meeting headers show its short name, and copied transcript text includes it before the
+timestamped lines. Meetings recorded by older versions do not have this field and omit the model.
 
 While a recording is active, utterances that arrive before the model is ready wait for the current
 model load instead of being dropped. If the recording stops before the model becomes ready, that

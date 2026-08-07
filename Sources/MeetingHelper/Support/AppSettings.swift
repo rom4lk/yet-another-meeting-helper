@@ -52,10 +52,22 @@ final class AppSettings: ObservableObject {
     nonisolated static let parakeetModelID = "parakeet-tdt-0.6b-v3"
 
     /// Model identifiers understood by the corresponding transcription backend.
-    static let availableModels: [(id: String, name: String)] = [
-        ("openai_whisper-large-v3-v20240930_turbo", "Whisper large-v3 turbo — accurate, ~1.5 GB"),
-        ("openai_whisper-large-v3", "Whisper large-v3 — most accurate, slowest, ~3 GB"),
-        (parakeetModelID, "Parakeet TDT v3 — fast, multilingual, ~600 MB")
+    static let availableModels: [(id: String, name: String, shortName: String)] = [
+        (
+            "openai_whisper-large-v3-v20240930_turbo",
+            "Whisper large-v3 turbo — accurate, ~1.5 GB",
+            "Whisper large-v3 turbo"
+        ),
+        (
+            "openai_whisper-large-v3",
+            "Whisper large-v3 — most accurate, slowest, ~3 GB",
+            "Whisper large-v3"
+        ),
+        (
+            parakeetModelID,
+            "Parakeet TDT v3 — fast, multilingual, ~600 MB",
+            "Parakeet TDT v3"
+        )
     ]
     static let minimumRecordingDurations = [5, 10, 30, 60, 300]
 
@@ -156,6 +168,10 @@ final class AppSettings: ObservableObject {
            let refreshedBookmark = try? iCloudSyncFolderURL.bookmarkData() {
             defaults.set(refreshedBookmark, forKey: Keys.iCloudSyncFolderBookmark)
         }
+    }
+
+    static func displayName(forModel model: String) -> String {
+        availableModels.first { $0.id == model }?.shortName ?? model
     }
 
     func setICloudSyncFolderURL(_ url: URL?) throws {

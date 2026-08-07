@@ -20,6 +20,7 @@ final class RecordingSession: ObservableObject {
 
     let meetingID = UUID()
     let detected: DetectedMeeting
+    let transcriptionModel: String?
 
     @Published var title: String
     @Published private(set) var startedAt = Date()
@@ -76,6 +77,7 @@ final class RecordingSession: ObservableObject {
         self.transcriptDeduplicationEnabled = settings.transcriptDeduplicationEnabled
         self.realtimeTranscriptEnabled = settings.realtimeTranscriptEnabled
         self.echoReference = settings.echoGateEnabled ? EchoReference() : nil
+        self.transcriptionModel = settings.liveTranscriptEnabled ? settings.model : nil
         self.title = detected.title
     }
 
@@ -159,6 +161,7 @@ final class RecordingSession: ObservableObject {
             duration: duration,
             hasMicTrack: hasMic,
             hasSystemTrack: hasSystem,
+            transcriptionModel: transcriptionModel,
             calendar: calendar
         )
     }
@@ -285,7 +288,7 @@ final class RecordingSession: ObservableObject {
     }
 
     private func startTranscription() {
-        guard settings.liveTranscriptEnabled else {
+        guard let model = transcriptionModel else {
             transcriptionState = .disabled
             return
         }
@@ -313,7 +316,6 @@ final class RecordingSession: ObservableObject {
             self?.receive(update)
         }
 
-        let model = settings.model
         transcriptionState = TranscriptionEngine.isDownloaded(model)
             ? .preparing(TranscriptionEngine.initialPreparationStage(for: model))
             : .downloading(nil)

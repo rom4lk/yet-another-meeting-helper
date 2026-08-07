@@ -86,6 +86,12 @@ struct MeetingDetailView: View {
                 Label(meeting.kind.displayName, systemImage: icon)
                 Text(meeting.startedAt.formatted(date: .abbreviated, time: .shortened))
                 Text(meeting.formattedDuration)
+                if let model = meeting.transcriptionModel {
+                    Label(
+                        "Transcription: \(AppSettings.displayName(forModel: model))",
+                        systemImage: "waveform"
+                    )
+                }
                 if let calendar = meeting.calendar {
                     CalendarParticipantsLabel(info: calendar)
                 }
@@ -161,9 +167,10 @@ struct MeetingDetailView: View {
     }
 
     private func copyTranscript() {
-        let text = lines
-            .map { "[\($0.timestamp)] \($0.source.title): \($0.text)" }
-            .joined(separator: "\n")
+        let text = TranscriptTextFormatter.string(
+            from: lines,
+            transcriptionModel: meeting.transcriptionModel
+        )
 
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
