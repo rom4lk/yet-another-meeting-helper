@@ -61,6 +61,9 @@ struct ActiveRecordingView: View {
                 Label("Microphone: \(session.microphoneDeviceName)", systemImage: "mic")
                 Label("Audio source: \(session.systemAudioSourceName)", systemImage: "speaker.wave.2")
                 echoGate
+                if let calendar = session.calendar {
+                    CalendarParticipantsLabel(info: calendar)
+                }
             }
             .font(.caption)
             .foregroundStyle(.secondary)

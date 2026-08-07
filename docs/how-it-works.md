@@ -192,6 +192,90 @@ device optimization; the first optimization can take 10 minutes or more, while t
 usually takes a few seconds. macOS caches the optimized model, so later launches are normally much
 faster unless the system cache has been evicted.
 
+## Calendar
+
+Calendar integration is optional and read-only. It exists to answer two questions a recording
+cannot answer on its own: what the meeting is actually called, and who was invited to it. The second
+one is groundwork — the attendee list is the vocabulary that a later speaker-attribution stage needs
+in order to turn anonymous voices into names.
+
+### Where the events come from
+
+Events are read through EventKit, from the calendars macOS already syncs. Meeting Helper does not
+speak to Google, or to any other calendar service, at all.
+
+The alternative was the Google Calendar API, and it was built first. It requires an OAuth client,
+which requires a Google Cloud project, which someone has to create, publish a consent screen for and
+keep alive: while the screen stays in testing Google expires the sign-in after seven days, and the
+client secret has to live somewhere. All of that is setup a user has to perform before the feature
+does anything for them. Going through EventKit moves the entire problem to the system: the account
+is added once in **System Settings > Internet Accounts**, where macOS performs the sign-in with its
+own credentials, and every calendar it syncs afterwards is readable. The app ends up with no OAuth
+client, no client secret, no tokens to store or refresh, and no network code.
+
+What it costs is a dependency on the account being addable to macOS at all — an employer can forbid
+it — and on macOS having synced the event already. An invitation accepted a minute ago on a phone
+may not be on the Mac yet when the call starts.
+
+Access is requested with `requestFullAccessToEvents`. macOS 14 splits calendar permission into full
+and write-only; write-only cannot read anything, so it is treated exactly like a refusal. Both a
+refusal and a device policy leave only System Settings as a way out, which is why the settings
+screen offers that link instead of asking again — a second request returns the old answer without
+showing a prompt.
+
+Neither access nor the list of accounts reports back when it changes. `EKEventStoreChanged` covers
+changes made while the app runs, and everything is re-read whenever the app becomes active, which
+covers the rest. `EKEventStore` holds on to its sources until told otherwise, so `reset()` is what
+makes an account added a moment ago visible.
+
+### Reading events
+
+Every calendar the account offers is read, over a window from one hour back to three hours ahead of
+the moment the recording starts. EventKit reads a local database, so this is a plain query at the
+moment it is needed rather than a cache kept warm in the background: there is no round trip worth
+avoiding, and therefore no window that can go stale.
+
+All-day entries and cancelled events are dropped. An all-day entry spans every meeting of the day,
+so keeping them would put a birthday reminder in front of the real event. A participant EventKit
+identifies by something other than a `mailto:` URL is dropped too: the address is the identity
+everything else keys on. An unrecognized attendee response value decodes as "needs action" rather
+than failing the event, so a meeting cannot lose its whole roster over one field.
+
+### Matching a recording to an event
+
+The signals differ sharply in strength, so they are scored rather than combined into a single test:
+
+| Signal | Weight | Why |
+|---|---|---|
+| Shared conference code | 100 | A Google Meet window title carries the meeting code, and the event carries the same code in its join link. Two independent sources agreeing on `abc-defg-hij` is not a coincidence. |
+| Title overlap | up to 60 | The tab title or Zoom topic is usually the event's name, but rarely character for character. Overlap of significant words survives a prefix, a suffix or a reordering. |
+| Detected inside the event | 20 | A busy calendar has something running at almost any moment, so this alone means little. |
+
+Candidates are limited to events that the recording starts within ten minutes of — people join early
+and calls run over. Zoom has no equivalent of the Meet code, since its window shows the topic rather
+than the numeric meeting id, so a Zoom call is matched on title and time alone.
+
+A match below the confidence threshold, or a tie between two events, still contributes its attendee
+list but does not rename anything: renaming a recording after the wrong meeting is worse than leaving
+the window title in place. Matching runs once, as the recording starts, so a title the user types
+afterwards is never at risk of being overwritten.
+
+The same event invited to both a work and a personal account arrives twice. Duplicates are collapsed
+by `iCalUID` together with the start time, keeping the copy from the calendar where the invitation
+was accepted. The start time is part of the key because every occurrence of a recurring series
+carries the identifier of the series, and a four-hour window can hold two of them.
+
+### What is stored
+
+A matched event is copied into `meeting.json` as a snapshot — event id, title, organizer, the
+calendar it came from, and the attendee list with each person's response — rather than referenced.
+The event can be edited or deleted afterwards, and the recording still has to say who was in the
+room at the time. The field is optional, so meetings recorded before calendar support decode
+unchanged.
+
+An older build of the app that saves a title edit over a newer `meeting.json` drops this field, the
+same way it drops a meeting kind it does not recognize.
+
 ## Permission handling
 
 The app is intentionally not sandboxed because process-scoped audio taps and the Accessibility API
@@ -207,8 +291,17 @@ without permission, and `AudioHardwareCreateProcessTap` returns `noErr` when acc
 delivering silence. Meeting Helper reads the state through the TCC SPI. As a fallback,
 `RecordingSession` shows a warning when the tap remains near-silent for 20 seconds.
 
-The app requests only the microphone, system audio recording and Accessibility. It holds no
-calendar or Apple Events entitlement, and nothing in the code reaches for either.
+Besides the microphone, system audio recording and Accessibility, the app requests calendar access —
+optionally, and only when the calendar section of the settings screen asks for it. It holds no Apple
+Events entitlement and nothing in the code reaches for one.
+
+Calendar access needs two things beyond the call itself, and missing either produces the same
+silence. `NSCalendarsFullAccessUsageDescription` is the text the prompt shows. The
+`com.apple.security.personal-information.calendars` entitlement is what allows the prompt to appear
+at all: it reads like a sandbox entitlement, but the hardened runtime requires it too, and without
+it TCC refuses to prompt and `requestFullAccessToEvents` returns as though nothing had been asked —
+no error, no alert, no change of state. The refusal is visible only in `tccd`'s log, as *service
+kTCCServiceCalendar requires entitlement com.apple.security.personal-information.calendars*.
 
 When a meeting starts without microphone access, the detector keeps its state instead of clearing
 it. Clearing would let the two-second poll re-fire the start immediately, raising the same alert
@@ -218,8 +311,16 @@ can be started by hand after the permission is granted.
 ## Logging and privacy
 
 Recordings, transcripts and metadata never leave the machine unless a sync folder is configured.
+Nothing in the app contacts a network service, the calendar included: EventKit reads a local
+database, and the syncing is the system's business.
 
-Meeting titles and transcript text are user data and are logged with `privacy: .private`, so they
-appear as `<private>` in `log show` and Console. Only non-identifying values — the meeting kind,
-permission states, audio formats, error descriptions — are logged as `.public`, which is what makes
-a missed meeting debuggable after the fact without exposing what was said.
+Calendar access does put more personal data into the library. Granting it means the names and
+addresses of the people invited to a meeting are written into `meeting.json`, and therefore into the
+sync folder as well when synchronization is on. Revoking access in System Settings stops new
+recordings from collecting it; the attendee lists already saved with past meetings are left alone.
+
+Meeting titles, transcript text, and the names and addresses of participants are user data and are
+logged with `privacy: .private`, so they appear as `<private>` in `log show` and Console. Only
+non-identifying values — the meeting kind, permission states, audio formats, error descriptions —
+are logged as `.public`, which is what makes a missed meeting debuggable after the fact without
+exposing what was said or who was there.

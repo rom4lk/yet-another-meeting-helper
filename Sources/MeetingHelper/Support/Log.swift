@@ -8,4 +8,5 @@ enum Log {
     static let audio = Logger(subsystem: subsystem, category: "audio")
     static let asr = Logger(subsystem: subsystem, category: "asr")
     static let store = Logger(subsystem: subsystem, category: "store")
+    static let calendar = Logger(subsystem: subsystem, category: "calendar")
 }

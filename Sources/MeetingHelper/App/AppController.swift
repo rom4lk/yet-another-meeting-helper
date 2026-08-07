@@ -11,6 +11,7 @@ final class AppController: ObservableObject {
     let store = MeetingStore()
     let iCloudSync = ICloudMeetingSyncCoordinator()
     let detector = MeetingDetector()
+    let calendar = CalendarService()
 
     @Published private(set) var session: RecordingSession?
     @Published private(set) var isStopping = false
@@ -38,6 +39,7 @@ final class AppController: ObservableObject {
     private var settingsObserver: AnyCancellable?
     private var storeObserver: AnyCancellable?
     private var iCloudSyncObserver: AnyCancellable?
+    private var calendarObserver: AnyCancellable?
     private var hasBootstrapped = false
     /// A meeting detected while the previous recording was still being finalised.
     private var pendingStart: DetectedMeeting?
@@ -57,6 +59,9 @@ final class AppController: ObservableObject {
             self?.objectWillChange.send()
         }
         iCloudSyncObserver = iCloudSync.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        calendarObserver = calendar.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
         store.onLibraryChange = { [weak self] change in
@@ -100,6 +105,7 @@ final class AppController: ObservableObject {
             limit: settings.iCloudSyncLimit,
             folderURL: settings.iCloudSyncFolderURL
         )
+        calendar.bootstrap()
     }
 
 #if DEBUG
@@ -264,9 +270,16 @@ final class AppController: ObservableObject {
         }
     }
 
+    // MARK: - Calendar
+
+    func requestCalendarAccess() {
+        Task { await calendar.requestAccess() }
+    }
+
     func applicationDidBecomeActive() {
         refreshPermissions()
         iCloudSync.applicationDidBecomeActive()
+        calendar.applicationDidBecomeActive()
     }
 
     private func preloadInstalledModel() {
@@ -354,10 +367,18 @@ final class AppController: ObservableObject {
         }
         self.session = session
         session.start()
+        applyCalendarMatch(for: meeting, to: session)
 
         if settings.showPanelOnStart, settings.liveTranscriptEnabled {
             showPanel()
         }
+    }
+
+    /// Names the recording after the calendar event it belongs to and keeps that event's attendee
+    /// list with it.
+    private func applyCalendarMatch(for meeting: DetectedMeeting, to session: RecordingSession) {
+        guard let match = calendar.bestMatch(for: meeting) else { return }
+        session.apply(match)
     }
 
     func stopRecording(manually: Bool = true) {

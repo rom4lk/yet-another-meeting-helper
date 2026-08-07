@@ -86,6 +86,9 @@ struct MeetingDetailView: View {
                 Label(meeting.kind.displayName, systemImage: icon)
                 Text(meeting.startedAt.formatted(date: .abbreviated, time: .shortened))
                 Text(meeting.formattedDuration)
+                if let calendar = meeting.calendar {
+                    CalendarParticipantsLabel(info: calendar)
+                }
             }
             .font(.caption)
             .foregroundStyle(.secondary)

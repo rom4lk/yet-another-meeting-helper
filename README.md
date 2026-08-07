@@ -15,6 +15,9 @@ and stop recording automatically, and keep a live transcript visible while you w
 - Echo filtering and transcript deduplication for cleaner speaker attribution.
 - Process-scoped audio capture for detected meetings, plus manual recording of all system audio.
 - Saved recordings, playback, transcripts, timestamps, and meeting metadata.
+- Optional read-only calendar integration covering every account macOS syncs, such as a work Google
+  account and a personal one. A recording takes the name of the calendar event it belongs to and
+  keeps that event's list of participants.
 - Optional synchronization through a user-selected iCloud Drive or other file-syncing folder.
 - Global shortcuts for starting a recording and showing or hiding the transcript panel.
 
@@ -100,6 +103,24 @@ The selected limit applies to the combined set of meetings found on the Mac and 
 Meetings beyond the limit remain in the local library but are removed from the sync folder. Turning
 synchronization off does not delete copies already in that folder.
 
+### Connect a calendar
+
+Calendar integration is off until you grant access. It is read-only: Meeting Helper names a
+recording after the event it belongs to and saves that event's list of participants with the
+meeting. It never writes to a calendar.
+
+The app has no sign-in of its own and needs no Google Cloud project. It reads the calendars macOS
+already syncs, so both the work account and the personal one are added the ordinary way:
+
+1. Open **System Settings > Internet Accounts**, add each Google account, and turn **Calendars** on
+   for it. Accounts already added for Mail or Contacts only need the Calendars switch.
+2. In Meeting Helper, open **Settings > Calendar** and press **Connect Calendar**. macOS asks for
+   permission; the accounts it found are listed once it is granted.
+
+Every calendar of every account is read, in a window from one hour back to three hours ahead of the
+recording. If access was refused earlier, macOS will not ask again — the same section links to
+**Privacy & Security > Calendars**, where it can be turned back on.
+
 To check the installation, start a manual recording with **Option-Command-R**, speak into the
 microphone, play some system audio, stop the recording, and verify both tracks in the saved meeting.
 
@@ -114,7 +135,11 @@ all system audio. The microphone and meeting audio are stored separately, which 
 distinguish "Me" from "Others".
 
 Transcription runs locally with WhisperKit or Parakeet TDT v3. Echo filtering and transcript
-deduplication reduce speaker leakage and duplicate lines. See
+deduplication reduce speaker leakage and duplicate lines.
+
+When calendar access is granted, a starting recording is matched to a calendar event by the
+conference link, the title, and the time. Events are read locally through EventKit, so nothing in
+the app talks to a network service and everything stays on the Mac. See
 [docs/how-it-works.md](docs/how-it-works.md) for the implementation details.
 
 ## Permissions
@@ -124,6 +149,7 @@ deduplication reduce speaker leakage and duplicate lines. See
 | Microphone | own track | recording does not start |
 | System audio | the other participants' track | silence in the second track |
 | Accessibility | window titles | no meeting titles and no browser meeting detection |
+| Calendars (optional) | event names and participants | recordings keep the window title and no participants |
 
 The app is deliberately **not sandboxed**: process-bound taps and the Accessibility API are not
 available under App Sandbox.

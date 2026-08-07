@@ -73,6 +73,9 @@ targets:
         # are both unavailable inside the App Sandbox.
         com.apple.security.app-sandbox: false
         com.apple.security.device.audio-input: true
+        # Required even outside the sandbox: under the hardened runtime TCC refuses to show the
+        # calendar prompt without it, and the request returns as if nothing had been asked.
+        com.apple.security.personal-information.calendars: true
     info:
       path: Resources/Info.plist
       properties:
@@ -87,6 +90,7 @@ targets:
         NSHumanReadableCopyright: ""
         NSMicrophoneUsageDescription: "Records your voice during the meeting."
         NSAudioCaptureUsageDescription: "Records the other participants' voices from the meeting app's audio stream."
+        NSCalendarsFullAccessUsageDescription: "Names a recording after the meeting in your calendar and keeps that meeting's list of participants with it."
   MeetingHelperTests:
     type: bundle.unit-test
     platform: macOS

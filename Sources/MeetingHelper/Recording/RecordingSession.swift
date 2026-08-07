@@ -41,6 +41,8 @@ final class RecordingSession: ObservableObject {
     @Published private(set) var echoGateFiltered = 0
     /// True for a few seconds after each drop, so the indicator visibly reacts.
     @Published private(set) var echoGateFiring = false
+    /// The calendar event this recording was matched to, set once as the recording starts.
+    @Published private(set) var calendar: MeetingCalendarInfo?
 
     private var lastEchoDropAt: Date?
     private var systemPeak: Float = 0
@@ -75,6 +77,15 @@ final class RecordingSession: ObservableObject {
         self.realtimeTranscriptEnabled = settings.realtimeTranscriptEnabled
         self.echoReference = settings.echoGateEnabled ? EchoReference() : nil
         self.title = detected.title
+    }
+
+    /// Adopts a calendar event: the recording keeps the event's attendee list, and takes its name
+    /// as well when the match is certain enough to be worth renaming for.
+    func apply(_ match: CalendarEventMatcher.Match) {
+        calendar = MeetingCalendarInfo(event: match.event)
+
+        guard match.isConfident else { return }
+        title = match.event.title
     }
 
     // MARK: - Lifecycle
@@ -147,7 +158,8 @@ final class RecordingSession: ObservableObject {
             startedAt: startedAt,
             duration: duration,
             hasMicTrack: hasMic,
-            hasSystemTrack: hasSystem
+            hasSystemTrack: hasSystem,
+            calendar: calendar
         )
     }
 

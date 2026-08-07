@@ -144,6 +144,10 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Calendar") {
+                calendarSection
+            }
+
             Section("Shortcuts") {
                 LabeledContent("Start/stop recording", value: "⌥⌘R")
                 LabeledContent("Show/hide the panel", value: "⌥⌘T")
@@ -173,6 +177,40 @@ struct SettingsView: View {
             controller.refreshPermissions()
             controller.refreshModelState()
         }
+    }
+
+    @ViewBuilder
+    private var calendarSection: some View {
+        switch controller.calendar.access {
+        case .notDetermined:
+            Button("Connect Calendar…") { controller.requestCalendarAccess() }
+        case .granted:
+            LabeledContent("Accounts") {
+                Text(calendarAccountSummary)
+                    .multilineTextAlignment(.trailing)
+            }
+            Button("Add or remove accounts…") { CalendarService.openAccountSettings() }
+        case .denied:
+            LabeledContent("Access") {
+                Label("Denied", systemImage: "xmark.circle.fill")
+                    .foregroundStyle(.orange)
+            }
+            Button("Open Privacy Settings…") { CalendarService.openPrivacySettings() }
+        }
+
+        Text("""
+            Meeting Helper reads the calendars macOS already syncs, so a recording takes the name \
+            of the event it belongs to and keeps that event's list of invited people. Add the work \
+            Google account and the personal one under System Settings > Internet Accounts with \
+            Calendars turned on. The app signs in to nothing itself and never writes to a calendar.
+            """)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+    }
+
+    private var calendarAccountSummary: String {
+        let titles = controller.calendar.accountTitles
+        return titles.isEmpty ? "None with calendars" : titles.joined(separator: ", ")
     }
 
     @ViewBuilder

@@ -10,6 +10,10 @@ struct Meeting: Identifiable, Codable, Hashable {
     var duration: TimeInterval
     var hasMicTrack: Bool
     var hasSystemTrack: Bool
+    /// The calendar event this recording was matched to, if there was one. Optional both because
+    /// most manual recordings have none and because meetings recorded before calendar support
+    /// exists must keep decoding.
+    var calendar: MeetingCalendarInfo?
 
     init(
         id: UUID = UUID(),
@@ -18,7 +22,8 @@ struct Meeting: Identifiable, Codable, Hashable {
         startedAt: Date = Date(),
         duration: TimeInterval = 0,
         hasMicTrack: Bool = false,
-        hasSystemTrack: Bool = false
+        hasSystemTrack: Bool = false,
+        calendar: MeetingCalendarInfo? = nil
     ) {
         self.id = id
         self.title = title
@@ -27,6 +32,7 @@ struct Meeting: Identifiable, Codable, Hashable {
         self.duration = duration
         self.hasMicTrack = hasMicTrack
         self.hasSystemTrack = hasSystemTrack
+        self.calendar = calendar
     }
 
     var formattedDuration: String { duration.clockString }
