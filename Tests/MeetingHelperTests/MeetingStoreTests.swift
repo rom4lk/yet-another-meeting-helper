@@ -110,4 +110,27 @@ final class MeetingStoreTests: XCTestCase {
         XCTAssertEqual(store.meetings.map(\.title), ["Legacy meeting"])
         XCTAssertEqual(store.meetings.first?.duration, 1800)
     }
+
+    func testMetadataWithUnknownMeetingKindStillDecodes() throws {
+        let id = UUID()
+        try MeetingLibrary.createDirectory(for: id, in: root)
+        let json = """
+        {
+          "id": "\(id.uuidString)",
+          "title": "Future meeting provider",
+          "kind": "futureProvider",
+          "startedAt": "2026-08-03T08:00:26Z",
+          "duration": 2803,
+          "hasMicTrack": true,
+          "hasSystemTrack": true
+        }
+        """
+        try Data(json.utf8).write(to: MeetingLibrary.metadataURL(for: id, in: root))
+
+        let store = MeetingStore(root: root)
+
+        XCTAssertEqual(store.meetings.first?.kind, .unknown("futureProvider"))
+        XCTAssertEqual(store.meetings.first?.kind.rawValue, "futureProvider")
+        XCTAssertEqual(store.meetings.first?.kind.displayName, "Other")
+    }
 }

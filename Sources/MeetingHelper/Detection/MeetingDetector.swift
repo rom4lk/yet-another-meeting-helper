@@ -3,11 +3,42 @@ import Combine
 import Foundation
 
 struct DetectedMeeting: Equatable {
-    enum Kind: String, Codable {
+    enum Kind: Codable, Hashable {
         case zoom
         case googleMeet
         case ktalk
         case manual
+        case unknown(String)
+
+        var rawValue: String {
+            switch self {
+            case .zoom: return "zoom"
+            case .googleMeet: return "googleMeet"
+            case .ktalk: return "ktalk"
+            case .manual: return "manual"
+            case .unknown(let rawValue): return rawValue
+            }
+        }
+
+        init(rawValue: String) {
+            switch rawValue {
+            case "zoom": self = .zoom
+            case "googleMeet": self = .googleMeet
+            case "ktalk": self = .ktalk
+            case "manual": self = .manual
+            default: self = .unknown(rawValue)
+            }
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            self.init(rawValue: try container.decode(String.self))
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.singleValueContainer()
+            try container.encode(rawValue)
+        }
 
         var displayName: String {
             switch self {
@@ -15,6 +46,7 @@ struct DetectedMeeting: Equatable {
             case .googleMeet: return "Google Meet"
             case .ktalk: return "Ktalk"
             case .manual: return "Manual"
+            case .unknown: return "Other"
             }
         }
 
@@ -51,7 +83,7 @@ struct DetectedMeeting: Equatable {
 struct BrowserMeetingService {
     let kind: DetectedMeeting.Kind
     /// Matched against a raw window title, browser name suffix included.
-    let matchesTitle: (String) -> Bool
+    let matchesTitle: @MainActor (String) -> Bool
     /// Host recorded in the PWA bundle. Subdomains match too: Ktalk gives every organisation its
     /// own one, and Meet is reached through a single host that has none in use.
     let pwaHost: String

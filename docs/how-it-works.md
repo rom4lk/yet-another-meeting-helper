@@ -104,7 +104,10 @@ modification date differ are copied, and files the source no longer has are remo
 directory is mostly audio that never changes once the recording is saved, so editing a title
 transfers a few hundred bytes instead of the whole recording. Each file is staged on the destination
 volume and installed in one step, so no file is ever observed half written.
-
+Meeting kinds written by newer app versions are preserved and shown as "Other" when the current
+version does not recognize them. Missing metadata in the sync folder, or unreadable or inconsistent
+metadata on either side, fails the synchronization pass instead of being skipped with an up-to-date
+status. An in-progress local recording without metadata is ignored until it is completely saved.
 App-initiated deletion creates a permanent marker before removing the synchronized copy; this keeps
 an offline Mac from uploading an old local copy again later. Turning synchronization off stops
 reconciliation but deliberately leaves the current contents of the selected folder unchanged.
