@@ -154,6 +154,57 @@ final class ICloudMeetingSyncTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: remoteMeetingsRoot.path))
     }
 
+    func testRemoteMeetingWithUnknownKindIsDownloadedLocally() async throws {
+        let remote = try writeMeeting(
+            title: "Future meeting provider",
+            startedAt: Date(),
+            to: remoteMeetingsRoot
+        )
+        try setKind("ktalk", for: remote.id, in: remoteMeetingsRoot)
+        let engine = makeEngine()
+
+        let result = try await engine.synchronize(limit: .ten, folderURL: containerRoot)
+
+        XCTAssertEqual(result, .synchronized(localLibraryChanged: true))
+        XCTAssertEqual(
+            try readMeeting(id: remote.id, from: localMeetingsRoot).kind,
+            .unknown("ktalk")
+        )
+    }
+
+    func testInvalidRemoteMeetingMetadataFailsSynchronization() async throws {
+        let meetingID = UUID()
+        let directory = remoteMeetingsRoot.appendingPathComponent(
+            meetingID.uuidString,
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data("not json".utf8).write(to: directory.appendingPathComponent("meeting.json"))
+        let engine = makeEngine()
+
+        do {
+            _ = try await engine.synchronize(limit: .ten, folderURL: containerRoot)
+            XCTFail("Synchronization should fail for invalid meeting metadata")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("Cannot read synchronized meeting metadata"))
+        }
+    }
+
+    func testLocalInProgressMeetingWithoutMetadataIsIgnored() async throws {
+        let directory = localMeetingsRoot.appendingPathComponent(
+            UUID().uuidString,
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data("audio".utf8).write(to: directory.appendingPathComponent("mic.wav"))
+        let engine = makeEngine()
+
+        let result = try await engine.synchronize(limit: .ten, folderURL: containerRoot)
+
+        XCTAssertEqual(result, .synchronized(localLibraryChanged: false))
+        XCTAssertTrue(try meetingIDs(in: remoteMeetingsRoot).isEmpty)
+    }
+
     private var remoteMeetingsRoot: URL {
         containerRoot.appendingPathComponent("Meetings", isDirectory: true)
     }
@@ -198,6 +249,19 @@ final class ICloudMeetingSyncTests: XCTestCase {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(Meeting.self, from: data)
+    }
+
+    private func setKind(_ kind: String, for id: UUID, in root: URL) throws {
+        let metadataURL = root
+            .appendingPathComponent(id.uuidString)
+            .appendingPathComponent("meeting.json")
+        let data = try Data(contentsOf: metadataURL)
+        guard var object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            XCTFail("Meeting metadata should be a JSON object")
+            return
+        }
+        object["kind"] = kind
+        try JSONSerialization.data(withJSONObject: object).write(to: metadataURL, options: .atomic)
     }
 
     private func meetingIDs(in root: URL) throws -> Set<UUID> {

@@ -71,6 +71,10 @@ remote side is downloaded when it belongs to the retained set.
 
 Meeting UUIDs prevent independently recorded meetings from colliding. If the same meeting changes
 on two Macs, the copy with the newest metadata modification date replaces the other complete directory.
+Meeting kinds written by newer app versions are preserved and shown as "Other" when the current
+version does not recognize them. Missing metadata in the sync folder, or unreadable or inconsistent
+metadata on either side, fails the synchronization pass instead of being skipped with an up-to-date
+status. An in-progress local recording without metadata is ignored until it is completely saved.
 App-initiated deletion creates a permanent marker before removing the synchronized copy; this keeps
 an offline Mac from uploading an old local copy again later. Turning synchronization off stops
 reconciliation but deliberately leaves the current contents of the selected folder unchanged.

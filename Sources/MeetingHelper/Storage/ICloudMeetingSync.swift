@@ -5,6 +5,15 @@ enum ICloudMeetingSyncOutcome: Equatable {
     case unavailable
 }
 
+private struct ICloudMeetingSyncMetadataError: LocalizedError {
+    let metadataURL: URL
+    let reason: String
+
+    var errorDescription: String? {
+        "Cannot read synchronized meeting metadata at \(metadataURL.path): \(reason)"
+    }
+}
+
 /// Mirrors complete, finished meeting directories into a user-selected sync folder, typically in
 /// iCloud Drive. Local storage remains the working copy so recording never depends on the network.
 actor ICloudMeetingSyncEngine {
@@ -73,10 +82,15 @@ actor ICloudMeetingSyncEngine {
         )
         try Task.checkCancellation()
 
-        var localRecords = records(in: localMeetingsRoot, coordinateReads: false)
-        var remoteRecords = records(
+        var localRecords = try records(
+            in: localMeetingsRoot,
+            coordinateReads: false,
+            allowsMissingMetadata: true
+        )
+        var remoteRecords = try records(
             in: remoteMeetingsRoot,
-            coordinateReads: coordinatesRemoteAccess
+            coordinateReads: coordinatesRemoteAccess,
+            allowsMissingMetadata: false
         )
         for meetingID in tombstoneResult.ids {
             localRecords.removeValue(forKey: meetingID)
@@ -205,24 +219,43 @@ actor ICloudMeetingSyncEngine {
         return TombstoneResult(ids: localIDs, localLibraryChanged: localLibraryChanged)
     }
 
-    private func records(in root: URL, coordinateReads: Bool) -> [UUID: Record] {
-        let directories = (try? fileManager.contentsOfDirectory(
+    private func records(
+        in root: URL,
+        coordinateReads: Bool,
+        allowsMissingMetadata: Bool
+    ) throws -> [UUID: Record] {
+        let directories = try fileManager.contentsOfDirectory(
             at: root,
             includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles]
-        )) ?? []
+        )
 
         var result: [UUID: Record] = [:]
         for directory in directories {
             guard let meetingID = UUID(uuidString: directory.lastPathComponent) else { continue }
             let metadataURL = directory.appendingPathComponent("meeting.json")
+            if allowsMissingMetadata, !fileManager.fileExists(atPath: metadataURL.path) {
+                continue
+            }
             if coordinateReads, fileManager.isUbiquitousItem(at: directory) {
                 try? fileManager.startDownloadingUbiquitousItem(at: directory)
             }
-            guard let data = readData(at: metadataURL, coordinated: coordinateReads),
-                  let meeting = try? decoder.decode(Meeting.self, from: data),
-                  meeting.id == meetingID
-            else { continue }
+            let meeting: Meeting
+            do {
+                let data = try readData(at: metadataURL, coordinated: coordinateReads)
+                meeting = try decoder.decode(Meeting.self, from: data)
+            } catch {
+                throw ICloudMeetingSyncMetadataError(
+                    metadataURL: metadataURL,
+                    reason: error.localizedDescription
+                )
+            }
+            guard meeting.id == meetingID else {
+                throw ICloudMeetingSyncMetadataError(
+                    metadataURL: metadataURL,
+                    reason: "the meeting ID does not match its directory name"
+                )
+            }
 
             result[meetingID] = Record(
                 meeting: meeting,
@@ -273,8 +306,8 @@ actor ICloudMeetingSyncEngine {
         return values?.contentModificationDate ?? .distantPast
     }
 
-    private func readData(at url: URL, coordinated: Bool) -> Data? {
-        guard coordinated else { return try? Data(contentsOf: url) }
+    private func readData(at url: URL, coordinated: Bool) throws -> Data {
+        guard coordinated else { return try Data(contentsOf: url) }
 
         if fileManager.isUbiquitousItem(at: url) {
             try? fileManager.startDownloadingUbiquitousItem(at: url)
@@ -290,7 +323,9 @@ actor ICloudMeetingSyncEngine {
                 readError = error
             }
         }
-        guard coordinationError == nil, readError == nil else { return nil }
+        if let coordinationError { throw coordinationError }
+        if let readError { throw readError }
+        guard let result else { throw CocoaError(.fileReadUnknown) }
         return result
     }
 

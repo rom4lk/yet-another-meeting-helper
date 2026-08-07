@@ -126,6 +126,7 @@ struct MeetingDetailView: View {
         case .zoom: return "video.fill"
         case .googleMeet: return "globe"
         case .manual: return "hand.tap.fill"
+        case .unknown: return "questionmark.circle"
         }
     }
 
