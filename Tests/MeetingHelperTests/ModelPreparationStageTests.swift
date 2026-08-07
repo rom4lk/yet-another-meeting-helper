@@ -3,10 +3,9 @@ import XCTest
 
 final class ModelPreparationStageTests: XCTestCase {
     func testWhisperStartsWithDeviceOptimization() {
-        XCTAssertEqual(
-            TranscriptionEngine.initialPreparationStage(for: "openai_whisper-large-v3-v20240930_turbo"),
-            .optimizing
-        )
+        for model in ["openai_whisper-large-v3-v20240930_turbo", "openai_whisper-large-v3"] {
+            XCTAssertEqual(TranscriptionEngine.initialPreparationStage(for: model), .optimizing)
+        }
     }
 
     func testParakeetStartsWithLoading() {

@@ -85,8 +85,10 @@ Grant access to the microphone, system audio recording, and Accessibility when m
 previously denied a permission, enable it under **System Settings > Privacy & Security** and restart
 the app.
 
-Open Settings in Meeting Helper and download the transcription model before the first meeting. The
-default model is about 1.5 GB and is not included in the app bundle.
+Open Settings in Meeting Helper and download the transcription model before the first meeting. No
+model is included in the app bundle. The default is Whisper large-v3 turbo (about 1.5 GB); full
+Whisper large-v3 (about 3 GB) is more accurate but noticeably slower, and Parakeet TDT v3 (about
+600 MB) is the fastest.
 
 ### Synchronize meetings through iCloud Drive
 

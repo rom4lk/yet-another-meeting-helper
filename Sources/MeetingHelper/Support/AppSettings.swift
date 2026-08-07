@@ -54,6 +54,7 @@ final class AppSettings: ObservableObject {
     /// Model identifiers understood by the corresponding transcription backend.
     static let availableModels: [(id: String, name: String)] = [
         ("openai_whisper-large-v3-v20240930_turbo", "Whisper large-v3 turbo — accurate, ~1.5 GB"),
+        ("openai_whisper-large-v3", "Whisper large-v3 — most accurate, slowest, ~3 GB"),
         (parakeetModelID, "Parakeet TDT v3 — fast, multilingual, ~600 MB")
     ]
     static let minimumRecordingDurations = [5, 10, 30, 60, 300]

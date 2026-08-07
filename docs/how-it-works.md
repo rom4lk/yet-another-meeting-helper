@@ -162,8 +162,10 @@ icon next to "Me" also shows the current state.
 ## Transcription
 
 Transcription uses Core ML through either WhisperKit or FluidAudio. Settings offers Whisper
-large-v3 turbo and multilingual Parakeet TDT v3, with Whisper as the default. Whisper model files
-are stored under:
+large-v3 turbo (~1.5 GB, the default), full Whisper large-v3 (~3 GB, the most accurate and the
+slowest), and multilingual Parakeet TDT v3 (~600 MB). Both Whisper variants come from the
+`argmaxinc/whisperkit-coreml` repository and share the same code path; their model files are stored
+under:
 
 ```text
 ~/Library/Application Support/MeetingHelper/Models

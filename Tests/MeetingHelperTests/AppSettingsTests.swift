@@ -9,10 +9,14 @@ final class AppSettingsTests: XCTestCase {
         })
     }
 
-    func testOnlyTurboAndParakeetModelsAreAvailable() {
+    func testAvailableModels() {
         XCTAssertEqual(
             AppSettings.availableModels.map(\.id),
-            ["openai_whisper-large-v3-v20240930_turbo", AppSettings.parakeetModelID]
+            [
+                "openai_whisper-large-v3-v20240930_turbo",
+                "openai_whisper-large-v3",
+                AppSettings.parakeetModelID
+            ]
         )
     }
 
