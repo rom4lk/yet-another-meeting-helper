@@ -58,6 +58,28 @@ final class ICloudMeetingSyncTests: XCTestCase {
         ))
     }
 
+    func testRemotePartialDirectoryWithoutMetadataIsRepairedFromLocal() async throws {
+        let meeting = try writeMeeting(
+            title: "Interrupted before metadata",
+            startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            to: localMeetingsRoot
+        )
+        let remoteDirectory = remoteMeetingsRoot.appendingPathComponent(
+            meeting.id.uuidString,
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: remoteDirectory, withIntermediateDirectories: true)
+        try Data("partial".utf8).write(to: remoteDirectory.appendingPathComponent("mic.wav"))
+
+        let result = try await makeEngine().synchronize(limit: .unlimited, folderURL: containerRoot)
+
+        XCTAssertEqual(result, .synchronized(localLibraryChanged: false))
+        XCTAssertEqual(try readMeeting(id: meeting.id, from: remoteMeetingsRoot), meeting)
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: remoteDirectory.appendingPathComponent("mix.m4a").path
+        ))
+    }
+
     func testNewerRemoteMeetingReplacesLocalCopy() async throws {
         let meetingID = UUID()
         let local = try writeMeeting(
@@ -183,6 +205,76 @@ final class ICloudMeetingSyncTests: XCTestCase {
                 .appendingPathComponent("transcript.json")),
             Data("[]".utf8)
         )
+    }
+
+    func testEqualModificationDatesRepairMissingRemoteFile() async throws {
+        let meetingID = UUID()
+        let meeting = try writeMeeting(
+            id: meetingID,
+            title: "Interrupted upload",
+            startedAt: Date(),
+            to: localMeetingsRoot
+        )
+        try writeMeeting(
+            id: meetingID,
+            title: meeting.title,
+            startedAt: meeting.startedAt,
+            to: remoteMeetingsRoot
+        )
+        try FileManager.default.removeItem(at: remoteMeetingsRoot
+            .appendingPathComponent(meetingID.uuidString)
+            .appendingPathComponent("mix.m4a"))
+        let sharedNewestDate = Date().addingTimeInterval(60)
+        for root in [localMeetingsRoot!, remoteMeetingsRoot] {
+            try setModificationDate(
+                sharedNewestDate,
+                of: root.appendingPathComponent(meetingID.uuidString)
+                    .appendingPathComponent("meeting.json")
+            )
+        }
+
+        let result = try await makeEngine().synchronize(limit: .unlimited, folderURL: containerRoot)
+
+        XCTAssertEqual(result, .synchronized(localLibraryChanged: false))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: remoteMeetingsRoot
+            .appendingPathComponent(meetingID.uuidString)
+            .appendingPathComponent("mix.m4a")
+            .path))
+    }
+
+    func testEqualModificationDatesRepairMissingLocalFile() async throws {
+        let meetingID = UUID()
+        let meeting = try writeMeeting(
+            id: meetingID,
+            title: "Interrupted download",
+            startedAt: Date(),
+            to: localMeetingsRoot
+        )
+        try writeMeeting(
+            id: meetingID,
+            title: meeting.title,
+            startedAt: meeting.startedAt,
+            to: remoteMeetingsRoot
+        )
+        try FileManager.default.removeItem(at: localMeetingsRoot
+            .appendingPathComponent(meetingID.uuidString)
+            .appendingPathComponent("mix.m4a"))
+        let sharedNewestDate = Date().addingTimeInterval(60)
+        for root in [localMeetingsRoot!, remoteMeetingsRoot] {
+            try setModificationDate(
+                sharedNewestDate,
+                of: root.appendingPathComponent(meetingID.uuidString)
+                    .appendingPathComponent("meeting.json")
+            )
+        }
+
+        let result = try await makeEngine().synchronize(limit: .unlimited, folderURL: containerRoot)
+
+        XCTAssertEqual(result, .synchronized(localLibraryChanged: true))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: localMeetingsRoot
+            .appendingPathComponent(meetingID.uuidString)
+            .appendingPathComponent("mix.m4a")
+            .path))
     }
 
     func testEditedTitleDoesNotCopyTheRecordingAgain() async throws {

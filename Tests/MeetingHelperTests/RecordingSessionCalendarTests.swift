@@ -44,14 +44,12 @@ final class RecordingSessionCalendarTests: XCTestCase {
         XCTAssertEqual(session.calendar?.title, "Quarterly roadmap review")
     }
 
-    /// An uncertain match still contributes its roster — the participants are useful even when the
-    /// event is only a guess — but it must not rename anything.
-    func testAnUncertainMatchKeepsTheDetectedTitle() {
+    func testAnUncertainMatchIsIgnored() {
         let session = makeSession()
 
         session.apply(match(title: "Dentist", isConfident: false))
 
         XCTAssertEqual(session.title, "Meet — abc-defg-hij")
-        XCTAssertEqual(session.calendar?.attendees.count, 1)
+        XCTAssertNil(session.calendar)
     }
 }

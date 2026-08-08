@@ -135,22 +135,23 @@ final class CalendarEventMatcherTests: XCTestCase {
 
     // MARK: - Ambiguity
 
-    func testTwoEqallyScoredEventsProduceNoConfidentMatch() {
+    func testTwoEquallyScoredEventsProduceNoMatch() {
         let first = event(id: "first", title: "Roadmap review", startsIn: -5)
         let second = event(id: "second", title: "Roadmap review", startsIn: -5)
 
-        let match = CalendarEventMatcher.bestMatch(for: meeting("Roadmap review"), in: [first, second])
-
-        XCTAssertNotNil(match)
-        XCTAssertEqual(match?.isConfident, false)
+        XCTAssertNil(CalendarEventMatcher.bestMatch(
+            for: meeting("Roadmap review"),
+            in: [first, second]
+        ))
     }
 
-    func testUnrelatedEventRunningAtTheSameTimeIsNotConfident() {
+    func testUnrelatedEventRunningAtTheSameTimeDoesNotMatch() {
         let unrelated = event(title: "Dentist", startsIn: -5)
 
-        let match = CalendarEventMatcher.bestMatch(for: meeting("Weekly sync"), in: [unrelated])
-
-        XCTAssertEqual(match?.isConfident, false)
+        XCTAssertNil(CalendarEventMatcher.bestMatch(
+            for: meeting("Weekly sync"),
+            in: [unrelated]
+        ))
     }
 
     func testNoEventsProduceNoMatch() {

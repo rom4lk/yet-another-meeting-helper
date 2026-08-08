@@ -48,14 +48,10 @@ final class MeetingStore: ObservableObject {
             .sorted { $0.startedAt > $1.startedAt }
     }
 
-    func save(_ meeting: Meeting) {
-        do {
-            try MeetingLibrary.createDirectory(for: meeting.id, in: root)
-            let data = try encoder.encode(meeting)
-            try data.write(to: MeetingLibrary.metadataURL(for: meeting.id, in: root), options: .atomic)
-        } catch {
-            Log.store.error("Cannot save meeting: \(error, privacy: .public)")
-        }
+    func save(_ meeting: Meeting) throws {
+        try MeetingLibrary.createDirectory(for: meeting.id, in: root)
+        let data = try encoder.encode(meeting)
+        try data.write(to: MeetingLibrary.metadataURL(for: meeting.id, in: root), options: .atomic)
 
         if let index = meetings.firstIndex(where: { $0.id == meeting.id }) {
             meetings[index] = meeting
@@ -75,14 +71,10 @@ final class MeetingStore: ObservableObject {
         }
     }
 
-    func saveTranscript(_ lines: [TranscriptLine], for id: UUID) {
-        do {
-            try MeetingLibrary.createDirectory(for: id, in: root)
-            let data = try encoder.encode(lines)
-            try data.write(to: MeetingLibrary.transcriptURL(for: id, in: root), options: .atomic)
-        } catch {
-            Log.store.error("Cannot save transcript: \(error, privacy: .public)")
-        }
+    func saveTranscript(_ lines: [TranscriptLine], for id: UUID) throws {
+        try MeetingLibrary.createDirectory(for: id, in: root)
+        let data = try encoder.encode(lines)
+        try data.write(to: MeetingLibrary.transcriptURL(for: id, in: root), options: .atomic)
         if meetings.contains(where: { $0.id == id }) {
             onLibraryChange?(.updated)
         }

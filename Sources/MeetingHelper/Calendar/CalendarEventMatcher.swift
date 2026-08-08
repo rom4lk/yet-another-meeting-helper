@@ -13,8 +13,7 @@ enum CalendarEventMatcher {
     struct Match {
         let event: CalendarEvent
         let score: Int
-        /// Whether the winner is clear enough to rename the recording without asking. When it is
-        /// not, the interface offers the candidates instead of guessing.
+        /// Whether the winner is clear enough to attach its metadata and rename the recording.
         let isConfident: Bool
     }
 
@@ -47,15 +46,15 @@ enum CalendarEventMatcher {
         }
     }
 
-    /// The single best event, or `nil` when nothing is close enough to be worth showing.
+    /// The single confident event, or `nil` when the evidence is weak or ambiguous.
     static func bestMatch(for meeting: DetectedMeeting, in events: [CalendarEvent]) -> Match? {
         let ranked = candidates(for: meeting, in: events)
-        guard let best = ranked.first else { return nil }
+        guard let best = ranked.first, best.isConfident else { return nil }
 
         // A tie between two events is not a match. Renaming the recording after the wrong one is
         // worse than leaving the window title in place.
         if ranked.count > 1, ranked[1].score == best.score {
-            return Match(event: best.event, score: best.score, isConfident: false)
+            return nil
         }
         return best
     }

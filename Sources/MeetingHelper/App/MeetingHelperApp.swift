@@ -1,5 +1,33 @@
 import SwiftUI
 
+@MainActor
+protocol ApplicationTerminationControlling: AnyObject {
+    var isRecording: Bool { get }
+    var isStopping: Bool { get }
+    func requestStop(startsPendingMeeting: Bool, completion: @escaping () -> Void)
+}
+
+extension AppController: ApplicationTerminationControlling {
+    func requestStop(startsPendingMeeting: Bool, completion: @escaping () -> Void) {
+        stopRecording(startsPendingMeeting: startsPendingMeeting, completion: completion)
+    }
+}
+
+@MainActor
+enum ApplicationTerminationHandler {
+    static func reply(
+        for controller: (any ApplicationTerminationControlling)?,
+        afterStopping: @escaping () -> Void
+    ) -> NSApplication.TerminateReply {
+        guard let controller, controller.isRecording || controller.isStopping else {
+            return .terminateNow
+        }
+
+        controller.requestStop(startsPendingMeeting: false, completion: afterStopping)
+        return .terminateLater
+    }
+}
+
 @main
 struct MeetingHelperApp: App {
     @StateObject private var controller = AppController()
@@ -11,7 +39,10 @@ struct MeetingHelperApp: App {
             RootView()
                 .environmentObject(controller)
                 .frame(minWidth: 860, minHeight: 520)
-                .onAppear { controller.bootstrap() }
+                .onAppear {
+                    appDelegate.controller = controller
+                    controller.bootstrap()
+                }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active {
                         controller.applicationDidBecomeActive()
@@ -46,11 +77,20 @@ struct MeetingHelperApp: App {
     }
 }
 
+@MainActor
 private final class AppDelegate: NSObject, NSApplicationDelegate {
+    var controller: AppController?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
            let icon = NSImage(contentsOf: iconURL) {
             NSApplication.shared.applicationIconImage = icon
+        }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        ApplicationTerminationHandler.reply(for: controller) {
+            sender.reply(toApplicationShouldTerminate: true)
         }
     }
 }

@@ -83,7 +83,8 @@ final class SourceTranscriber: @unchecked Sendable {
 
     convenience init(
         source: TranscriptSource,
-        engine: TranscriptionEngine,
+        engine: any SpeechTranscribing,
+        model: String,
         language: String?,
         realtimeUpdatesEnabled: Bool,
         echoReference: EchoReference? = nil,
@@ -97,7 +98,7 @@ final class SourceTranscriber: @unchecked Sendable {
             echoReference: echoReference,
             onEchoVerdict: onEchoVerdict,
             transcribe: { samples, language in
-                await engine.transcribe(samples, language: language)
+                await engine.transcribe(samples, language: language, model: model)
             },
             onUpdate: onUpdate
         )

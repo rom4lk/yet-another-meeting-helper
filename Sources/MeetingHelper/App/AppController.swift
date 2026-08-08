@@ -41,6 +41,8 @@ final class AppController: ObservableObject {
     private var iCloudSyncObserver: AnyCancellable?
     private var calendarObserver: AnyCancellable?
     private var hasBootstrapped = false
+    private var stopCompletions: [() -> Void] = []
+    private var shouldStartPendingMeetingAfterStop = true
     /// A meeting detected while the previous recording was still being finalised.
     private var pendingStart: DetectedMeeting?
 
@@ -219,6 +221,7 @@ final class AppController: ObservableObject {
     }
 
     func selectModel(_ model: String) {
+        guard !isRecording else { return }
         settings.model = model
         refreshModelState()
         preloadInstalledModel()
@@ -381,16 +384,36 @@ final class AppController: ObservableObject {
         session.apply(match)
     }
 
-    func stopRecording(manually: Bool = true) {
-        guard let session, !isStopping else { return }
+    func stopRecording(
+        manually: Bool = true,
+        startsPendingMeeting: Bool = true,
+        completion: (() -> Void)? = nil
+    ) {
+        if let completion {
+            stopCompletions.append(completion)
+        }
+        if !startsPendingMeeting {
+            shouldStartPendingMeetingAfterStop = false
+        }
+        guard let session else {
+            runStopCompletions()
+            return
+        }
+        guard !isStopping else { return }
+        shouldStartPendingMeetingAfterStop = startsPendingMeeting
         isStopping = true
 
         Task {
             let meeting = await session.stop()
             let lines = session.sortedLines
             if meeting.shouldBeSaved(minimumDuration: TimeInterval(settings.minimumRecordingDuration)) {
-                store.save(meeting)
-                store.saveTranscript(lines, for: meeting.id)
+                do {
+                    try store.save(meeting)
+                    try store.saveTranscript(lines, for: meeting.id)
+                } catch {
+                    errorMessage = "Cannot save the recording: \(error.localizedDescription)"
+                    Log.store.error("Cannot save recording: \(error, privacy: .public)")
+                }
             } else {
                 store.delete(meeting)
             }
@@ -402,8 +425,21 @@ final class AppController: ObservableObject {
                 self.detector.clearCurrent()
             }
             self.hidePanel()
-            self.startPendingMeetingIfNeeded()
+            let shouldStartPendingMeeting = self.shouldStartPendingMeetingAfterStop
+            self.shouldStartPendingMeetingAfterStop = true
+            if shouldStartPendingMeeting {
+                self.startPendingMeetingIfNeeded()
+            } else {
+                self.pendingStart = nil
+            }
+            self.runStopCompletions()
         }
+    }
+
+    private func runStopCompletions() {
+        let completions = stopCompletions
+        stopCompletions.removeAll()
+        completions.forEach { $0() }
     }
 
     /// Picks up a meeting that was detected while the previous recording was still stopping.

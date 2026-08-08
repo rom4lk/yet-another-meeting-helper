@@ -2,6 +2,15 @@ import XCTest
 @testable import MeetingHelper
 
 final class SourceTranscriberTests: XCTestCase {
+    private actor ModelSpy: SpeechTranscribing {
+        private(set) var models: [String] = []
+
+        func transcribe(_ samples: [Float], language: String?, model: String) async -> String? {
+            models.append(model)
+            return "Final result"
+        }
+    }
+
     private final class RecognitionCalls: @unchecked Sendable {
         private let lock = NSLock()
         private var sampleCounts: [Int] = []
@@ -145,6 +154,31 @@ final class SourceTranscriberTests: XCTestCase {
         await transcriber.finish(waitForTranscription: false)
 
         XCTAssertLessThan(Date().timeIntervalSince(startedAt), 1)
+    }
+
+    func testEngineTranscriptionUsesTheModelCapturedByTheTranscriber() async {
+        let final = expectation(description: "Final result")
+        let engine = ModelSpy()
+        let transcriber = SourceTranscriber(
+            source: .others,
+            engine: engine,
+            model: "model-at-recording-start",
+            language: "en",
+            realtimeUpdatesEnabled: false,
+            onUpdate: { update in
+                guard case .final = update else { return }
+                final.fulfill()
+            }
+        )
+
+        let speech = [Float](repeating: 0.1, count: 40 * EchoReference.frameSize)
+        let silence = [Float](repeating: 0, count: 8 * EchoReference.frameSize)
+        transcriber.feed(speech + silence)
+        await transcriber.finish(waitForTranscription: true)
+        await fulfillment(of: [final], timeout: 1)
+
+        let models = await engine.models
+        XCTAssertEqual(models, ["model-at-recording-start"])
     }
 
     // MARK: - Echo gate
@@ -299,4 +333,3 @@ final class SourceTranscriberTests: XCTestCase {
         )
     }
 }
-

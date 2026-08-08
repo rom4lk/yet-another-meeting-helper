@@ -115,7 +115,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Text("The language and the model below behave differently: the language is fixed for the whole recording, while switching the model reloads it right away, including during a recording.")
+                Text("The language and model are fixed for the whole recording. Model selection is available again after the recording stops.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -136,6 +136,7 @@ struct SettingsView: View {
                         Text(model.name).tag(model.id)
                     }
                 }
+                .disabled(controller.isRecording)
 
                 LabeledContent("Model files") { modelControl }
 

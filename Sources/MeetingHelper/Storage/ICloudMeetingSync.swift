@@ -152,7 +152,7 @@ final class ICloudMeetingSyncEngine: @unchecked Sendable {
         var remoteRecords = try records(
             in: remoteMeetingsRoot,
             coordinateReads: coordinatesRemoteAccess,
-            allowsMissingMetadata: false
+            allowsMissingMetadata: true
         )
         for meetingID in tombstoneResult.ids {
             localRecords.removeValue(forKey: meetingID)
@@ -222,6 +222,48 @@ final class ICloudMeetingSyncEngine: @unchecked Sendable {
                         cancellation: cancellation
                     )
                     localLibraryChanged = true
+                } else {
+                    let localFiles = try fileNames(in: local.directory)
+                    let remoteFiles = try fileNames(in: remote.directory)
+
+                    if localFiles.isSuperset(of: remoteFiles), localFiles != remoteFiles {
+                        try mirrorDirectory(
+                            at: remote.directory,
+                            from: local.directory,
+                            coordinateSourceRead: false,
+                            coordinateDestinationWrite: coordinatesRemoteAccess,
+                            cancellation: cancellation
+                        )
+                    } else if remoteFiles.isSuperset(of: localFiles), localFiles != remoteFiles {
+                        try mirrorDirectory(
+                            at: local.directory,
+                            from: remote.directory,
+                            coordinateSourceRead: coordinatesRemoteAccess,
+                            coordinateDestinationWrite: false,
+                            cancellation: cancellation
+                        )
+                        localLibraryChanged = true
+                    } else if localFiles != remoteFiles {
+                        // Each side has a file the other one lacks. This is a partial copy rather
+                        // than a newer version, so merge the union without deleting either side.
+                        try mirrorDirectory(
+                            at: remote.directory,
+                            from: local.directory,
+                            coordinateSourceRead: false,
+                            coordinateDestinationWrite: coordinatesRemoteAccess,
+                            removesExtraneousFiles: false,
+                            cancellation: cancellation
+                        )
+                        try mirrorDirectory(
+                            at: local.directory,
+                            from: remote.directory,
+                            coordinateSourceRead: coordinatesRemoteAccess,
+                            coordinateDestinationWrite: false,
+                            removesExtraneousFiles: false,
+                            cancellation: cancellation
+                        )
+                        localLibraryChanged = true
+                    }
                 }
 
             case (.none, .none):
@@ -383,6 +425,14 @@ final class ICloudMeetingSyncEngine: @unchecked Sendable {
         }
     }
 
+    private func fileNames(in directory: URL) throws -> Set<String> {
+        Set(try fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ).map(\.lastPathComponent))
+    }
+
     private func readData(at url: URL, coordinated: Bool) throws -> Data {
         guard coordinated else { return try Data(contentsOf: url) }
 
@@ -417,6 +467,7 @@ final class ICloudMeetingSyncEngine: @unchecked Sendable {
         from source: URL,
         coordinateSourceRead: Bool,
         coordinateDestinationWrite: Bool,
+        removesExtraneousFiles: Bool = true,
         cancellation: CancellationFlag
     ) throws {
         try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
@@ -429,6 +480,7 @@ final class ICloudMeetingSyncEngine: @unchecked Sendable {
                 try self.copyChangedFiles(
                     from: coordinatedSource,
                     to: destination,
+                    removesExtraneousFiles: removesExtraneousFiles,
                     cancellation: cancellation
                 )
             }
@@ -437,11 +489,17 @@ final class ICloudMeetingSyncEngine: @unchecked Sendable {
                 try self.copyChangedFiles(
                     from: source,
                     to: destination,
+                    removesExtraneousFiles: removesExtraneousFiles,
                     cancellation: cancellation
                 )
             }
         } else {
-            try copyChangedFiles(from: source, to: destination, cancellation: cancellation)
+            try copyChangedFiles(
+                from: source,
+                to: destination,
+                removesExtraneousFiles: removesExtraneousFiles,
+                cancellation: cancellation
+            )
         }
     }
 
@@ -449,6 +507,7 @@ final class ICloudMeetingSyncEngine: @unchecked Sendable {
     private func copyChangedFiles(
         from source: URL,
         to destination: URL,
+        removesExtraneousFiles: Bool,
         cancellation: CancellationFlag
     ) throws {
         let sourceFiles = try fileManager.contentsOfDirectory(
@@ -463,6 +522,8 @@ final class ICloudMeetingSyncEngine: @unchecked Sendable {
             guard !isUnchanged(file, installed) else { continue }
             try installFile(file, at: installed)
         }
+
+        guard removesExtraneousFiles else { return }
 
         // A file the source no longer has must disappear from the mirror as well.
         let sourceNames = Set(sourceFiles.map(\.lastPathComponent))

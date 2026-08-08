@@ -81,12 +81,10 @@ final class RecordingSession: ObservableObject {
         self.title = detected.title
     }
 
-    /// Adopts a calendar event: the recording keeps the event's attendee list, and takes its name
-    /// as well when the match is certain enough to be worth renaming for.
+    /// Adopts a confidently matched calendar event, including its title and attendee list.
     func apply(_ match: CalendarEventMatcher.Match) {
-        calendar = MeetingCalendarInfo(event: match.event)
-
         guard match.isConfident else { return }
+        calendar = MeetingCalendarInfo(event: match.event)
         title = match.event.title
     }
 
@@ -298,6 +296,7 @@ final class RecordingSession: ObservableObject {
         micTranscriber = SourceTranscriber(
             source: .me,
             engine: engine,
+            model: model,
             language: language,
             realtimeUpdatesEnabled: realtimeTranscriptEnabled,
             echoReference: echoReference,
@@ -310,6 +309,7 @@ final class RecordingSession: ObservableObject {
         systemTranscriber = SourceTranscriber(
             source: .others,
             engine: engine,
+            model: model,
             language: language,
             realtimeUpdatesEnabled: realtimeTranscriptEnabled
         ) { [weak self] update in

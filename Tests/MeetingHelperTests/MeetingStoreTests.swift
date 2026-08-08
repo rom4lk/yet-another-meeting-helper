@@ -16,7 +16,7 @@ final class MeetingStoreTests: XCTestCase {
         root = nil
     }
 
-    func testSavedMeetingSurvivesAReload() {
+    func testSavedMeetingSurvivesAReload() throws {
         let store = MeetingStore(root: root)
         let meeting = Meeting(
             title: "Weekly sync",
@@ -25,7 +25,7 @@ final class MeetingStoreTests: XCTestCase {
             transcriptionModel: "openai_whisper-large-v3"
         )
 
-        store.save(meeting)
+        try store.save(meeting)
 
         let reopened = MeetingStore(root: root)
         XCTAssertEqual(reopened.meetings.map(\.id), [meeting.id])
@@ -34,35 +34,38 @@ final class MeetingStoreTests: XCTestCase {
         XCTAssertEqual(reopened.meetings.first?.transcriptionModel, "openai_whisper-large-v3")
     }
 
-    func testSavingAnExistingMeetingUpdatesItInPlace() {
+    func testSavingAnExistingMeetingUpdatesItInPlace() throws {
         let store = MeetingStore(root: root)
         var meeting = Meeting(title: "Untitled", kind: .manual)
-        store.save(meeting)
+        try store.save(meeting)
 
         meeting.title = "Renamed"
-        store.save(meeting)
+        try store.save(meeting)
 
         XCTAssertEqual(store.meetings.count, 1)
         XCTAssertEqual(MeetingStore(root: root).meetings.first?.title, "Renamed")
     }
 
-    func testMeetingsAreSortedNewestFirst() {
+    func testMeetingsAreSortedNewestFirst() throws {
         let store = MeetingStore(root: root)
         let older = Meeting(title: "Older", kind: .manual, startedAt: Date(timeIntervalSince1970: 1_000))
         let newer = Meeting(title: "Newer", kind: .manual, startedAt: Date(timeIntervalSince1970: 2_000))
 
-        store.save(older)
-        store.save(newer)
+        try store.save(older)
+        try store.save(newer)
 
         XCTAssertEqual(store.meetings.map(\.title), ["Newer", "Older"])
         XCTAssertEqual(MeetingStore(root: root).meetings.map(\.title), ["Newer", "Older"])
     }
 
-    func testDeletingRemovesTheWholeMeetingDirectory() {
+    func testDeletingRemovesTheWholeMeetingDirectory() throws {
         let store = MeetingStore(root: root)
         let meeting = Meeting(title: "Doomed", kind: .manual)
-        store.save(meeting)
-        store.saveTranscript([TranscriptLine(source: .me, offset: 0, text: "Hello")], for: meeting.id)
+        try store.save(meeting)
+        try store.saveTranscript(
+            [TranscriptLine(source: .me, offset: 0, text: "Hello")],
+            for: meeting.id
+        )
         let directory = MeetingLibrary.directory(for: meeting.id, in: root)
         XCTAssertTrue(FileManager.default.fileExists(atPath: directory.path))
 
@@ -73,16 +76,16 @@ final class MeetingStoreTests: XCTestCase {
         XCTAssertTrue(MeetingStore(root: root).meetings.isEmpty)
     }
 
-    func testTranscriptRoundTrips() {
+    func testTranscriptRoundTrips() throws {
         let store = MeetingStore(root: root)
         let meeting = Meeting(title: "With transcript", kind: .googleMeet)
-        store.save(meeting)
+        try store.save(meeting)
         let lines = [
             TranscriptLine(source: .me, offset: 1.5, text: "Can you hear me?"),
             TranscriptLine(source: .others, offset: 3, text: "Loud and clear.")
         ]
 
-        store.saveTranscript(lines, for: meeting.id)
+        try store.saveTranscript(lines, for: meeting.id)
 
         XCTAssertEqual(MeetingStore(root: root).transcript(for: meeting.id), lines)
     }
@@ -91,6 +94,16 @@ final class MeetingStoreTests: XCTestCase {
         let store = MeetingStore(root: root)
 
         XCTAssertTrue(store.transcript(for: UUID()).isEmpty)
+    }
+
+    func testFailedSaveDoesNotAddMeetingToTheLibrary() throws {
+        let invalidRoot = root.appendingPathComponent("not-a-directory")
+        try Data("occupied".utf8).write(to: invalidRoot)
+        let store = MeetingStore(root: invalidRoot)
+        let meeting = Meeting(title: "Unsaved", kind: .manual)
+
+        XCTAssertThrowsError(try store.save(meeting))
+        XCTAssertTrue(store.meetings.isEmpty)
     }
 
     /// Meetings written before `endedAt` was dropped from the model must still load.

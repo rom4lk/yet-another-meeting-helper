@@ -25,10 +25,14 @@ enum ModelPreparationStage: Equatable, Sendable {
     }
 }
 
+protocol SpeechTranscribing: Sendable {
+    func transcribe(_ samples: [Float], language: String?, model: String) async -> String?
+}
+
 /// Owns the selected speech recognition pipeline. Both tracks funnel their chunks through this
 /// actor, and an explicit gate keeps the model serial even while the actor is reentrant at
 /// suspension points.
-actor TranscriptionEngine {
+actor TranscriptionEngine: SpeechTranscribing {
     enum State: Equatable {
         case idle
         case loading
@@ -74,6 +78,7 @@ actor TranscriptionEngine {
     private var loadedModel: String?
     private var loadTask: Task<Void, Error>?
     private var loadingModel: String?
+    private var failedModel: String?
     private var loadGeneration = 0
     private var preparationStage: ModelPreparationStage?
     private var preparationObservers: [UUID: (model: String, callback: @Sendable (ModelPreparationStage) -> Void)] = [:]
@@ -174,10 +179,23 @@ actor TranscriptionEngine {
             }
             // The task installs the model before it completes. Its initiating caller may not
             // have resumed yet to publish `.ready`, so do not start the same load a second time.
-            if activeModel == model, hasLoadedModel(model) { return }
+            if activeModel == model, hasLoadedModel(model) {
+                if loadingModel == model {
+                    state = .ready
+                    loadedModel = model
+                    failedModel = nil
+                    self.loadTask = nil
+                    loadingModel = nil
+                    preparationStage = nil
+                }
+                return
+            }
         }
         if case .ready = state, hasLoadedModel(model), loadedModel == model { return }
 
+        if failedModel == model {
+            failedModel = nil
+        }
         state = .loading
         loadingModel = model
         loadGeneration += 1
@@ -233,6 +251,9 @@ actor TranscriptionEngine {
             guard generation == loadGeneration else { return }
             state = .ready
             loadedModel = model
+            if failedModel == model {
+                failedModel = nil
+            }
             loadTask = nil
             loadingModel = nil
             preparationStage = nil
@@ -242,6 +263,7 @@ actor TranscriptionEngine {
             loadTask = nil
             loadingModel = nil
             preparationStage = nil
+            failedModel = model
             if let loadedModel, hasLoadedModel(loadedModel) {
                 // The switch failed but the earlier model is untouched, so recognition keeps working.
                 state = .ready
@@ -267,16 +289,22 @@ actor TranscriptionEngine {
     }
 
     /// - Parameter language: ISO code, or `nil` to let Whisper detect it per chunk.
-    func transcribe(_ samples: [Float], language: String?) async -> String? {
+    func transcribe(_ samples: [Float], language: String?, model: String) async -> String? {
         await acquireTranscriptionSlot()
         defer { releaseTranscriptionSlot() }
         guard !Task.isCancelled else { return nil }
 
-        // Audio starts flowing before the model finishes loading; hold the chunk instead of
-        // dropping it, so the first minute of a meeting is not lost.
-        if !hasLoadedModel(loadedModel), let loadTask {
-            try? await loadTask.value
+        // Audio starts flowing before the model finishes loading. Prepare the model captured by the
+        // recording rather than using whichever backend happens to be resident at this instant.
+        if loadedModel != model || !hasLoadedModel(model) {
+            guard failedModel != model else { return nil }
+            do {
+                try await prepare(model: model)
+            } catch {
+                return nil
+            }
         }
+        guard loadedModel == model, hasLoadedModel(model) else { return nil }
 
         let text: String
         if let parakeet {

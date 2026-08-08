@@ -155,7 +155,11 @@ struct MeetingDetailView: View {
 
         var updated = meeting
         updated.title = trimmed
-        controller.store.save(updated)
+        do {
+            try controller.store.save(updated)
+        } catch {
+            controller.errorMessage = "Cannot save the meeting title: \(error.localizedDescription)"
+        }
     }
 
     private func deleteMeeting() {

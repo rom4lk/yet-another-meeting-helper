@@ -73,6 +73,9 @@ and written separately:
     transcript.json  lines with timecodes and roles
 ```
 
+When the app is asked to quit during a recording, it delays termination until capture has stopped,
+the transcription backlog has drained, and the meeting files have been finalized.
+
 ### Folder-based synchronization
 
 The local Application Support directory remains the working library. Recording never writes into a
@@ -104,10 +107,14 @@ modification date differ are copied, and files the source no longer has are remo
 directory is mostly audio that never changes once the recording is saved, so editing a title
 transfers a few hundred bytes instead of the whole recording. Each file is staged on the destination
 volume and installed in one step, so no file is ever observed half written.
+If a previous pass stopped between files, equal directory dates do not hide the partial copy: the
+next pass compares file names and restores missing files from the complete side. If each side has a
+different subset, their files are merged without deleting either subset.
 Meeting kinds written by newer app versions are preserved and shown as "Other" when the current
-version does not recognize them. Missing metadata in the sync folder, or unreadable or inconsistent
-metadata on either side, fails the synchronization pass instead of being skipped with an up-to-date
-status. An in-progress local recording without metadata is ignored until it is completely saved.
+version does not recognize them. A UUID directory without metadata is treated as an interrupted copy
+and repaired when the complete meeting exists on the other side. Unreadable or inconsistent metadata
+still fails the synchronization pass instead of being skipped with an up-to-date status. An
+in-progress local recording without metadata is ignored until it is completely saved.
 App-initiated deletion creates a permanent marker before removing the synchronized copy; this keeps
 an offline Mac from uploading an old local copy again later. Turning synchronization off stops
 reconciliation but deliberately leaves the current contents of the selected folder unchanged.
@@ -182,11 +189,13 @@ Each result updates a preview line in place. After a pause, the full-utterance r
 preview, and only the final line is saved. This mode is disabled by default because it uses more
 processing power.
 
-The model selected when recording starts is stored with the meeting metadata. The active recording
-and saved meeting headers show its short name, and copied transcript text includes it before the
-timestamped lines. Meetings recorded by older versions do not have this field and omit the model.
+The model selected when recording starts is fixed for that recording and stored with the meeting
+metadata. The model picker is disabled until recording stops, and every recognition request verifies
+that the captured model is loaded before it runs. The active recording and saved meeting headers show
+its short name, and copied transcript text includes it before the timestamped lines. Meetings recorded
+by older versions do not have this field and omit the model.
 
-While a recording is active, utterances that arrive before the model is ready wait for the current
+While a recording is active, utterances that arrive before its captured model is ready wait for that
 model load instead of being dropped. If the recording stops before the model becomes ready, that
 pending transcription work is discarded so stopping does not wait for the download. The model can
 be downloaded in advance from Settings. On later launches, the app loads the local files and
@@ -259,10 +268,9 @@ Candidates are limited to events that the recording starts within ten minutes of
 and calls run over. Zoom has no equivalent of the Meet code, since its window shows the topic rather
 than the numeric meeting id, so a Zoom call is matched on title and time alone.
 
-A match below the confidence threshold, or a tie between two events, still contributes its attendee
-list but does not rename anything: renaming a recording after the wrong meeting is worse than leaving
-the window title in place. Matching runs once, as the recording starts, so a title the user types
-afterwards is never at risk of being overwritten.
+A match below the confidence threshold, or a tie between two events, is ignored. This prevents a
+recording from keeping and synchronizing the attendee list of an unrelated event. Matching runs once,
+as the recording starts, so a title the user types afterwards is never at risk of being overwritten.
 
 The same event invited to both a work and a personal account arrives twice. Duplicates are collapsed
 by `iCalUID` together with the start time, keeping the copy from the calendar where the invitation
